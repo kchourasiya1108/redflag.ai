@@ -7,6 +7,9 @@ Citation verifier then re-checks every cited value (phase 16).
 from __future__ import annotations
 
 import json
+import re
+
+from pydantic import BaseModel, Field
 
 from agent.agents.base import Agent, AgentResult, RunContext
 
@@ -41,6 +44,37 @@ def build_output(ctx: RunContext) -> dict:
             "data_source": ctx.source, "disclaimer": DISCLAIMER}
 
 
+class Summary(BaseModel):
+    summary: str = Field(max_length=1200)
+
+
+_BANNED = re.compile(r"(?i)\b(fraud\w*|scam\w*|cheat\w*|buy|sell|avoid|invest\s+in|"
+                     r"(?:should|must)\s+(?:not\s+)?apply|recommend\w*)\b")
+
+
+def plain_summary(gateway, out: dict) -> str | None:
+    """Nemotron's plain-language summary, accepted only if every number in it is in
+    the evidence and it gives no advice or accusation; otherwise None."""
+    evidence = json.dumps({k: out[k] for k in ("rating", "p_adverse", "reasons",
+                                               "skeptic_notes", "cleared_checks", "questions",
+                                               "not_checked")}, default=str)
+    prompt = ("Write a plain-language summary (at most 120 words) of this IPO risk report for "
+              "a retail investor. Use only facts and numbers that appear below. Neutral wording: "
+              "say an entity was 'named in an order', never that anyone did wrong. Do not tell "
+              "the reader to apply, avoid, buy or sell.\n\n" + evidence[:9000]
+              + '\n\nReply with JSON: {"summary": "..."}')
+    try:
+        text = gateway.generate(prompt, "You explain risk reports clearly and neutrally.",
+                                schema=Summary, route="reason", purpose="reporter:summary"
+                                ).parsed.summary.strip()
+    except Exception:
+        return None
+    numbers = re.findall(r"\d+(?:\.\d+)?", text)
+    if _BANNED.search(text) or any(n not in evidence for n in numbers):
+        return None
+    return text
+
+
 def render_markdown(out: dict) -> str:
     ipo = out["ipo"]
     lines = [f"# RedFlag report: {ipo.get('company')} ({ipo.get('exchange')})", "",
@@ -49,6 +83,8 @@ def render_markdown(out: dict) -> str:
                 if out["p_adverse"] is not None else ""),
              f"As of the bid opening date {out['as_of']}. Depth: {out['depth']}. "
              f"Model {out['model_version']}. Data: {out['data_source']}.", ""]
+    if out.get("summary"):
+        lines += [out["summary"], ""]
     sections = [("Reasons", [f"**{r['flag']} {r['title']} ({r['severity']}).** {r['text']} "
                              f"_Evidence: {', '.join(r['evidence'][:4])}_" for r in out["reasons"]]),
                 ("Skeptic's notes", [f"**{s['flag']}: {s['ruling']}.** {s['reason']} "
@@ -70,6 +106,8 @@ class Reporter(Agent):
 
     def run(self, ctx: RunContext) -> AgentResult:
         out = build_output(ctx)
+        out["summary"] = plain_summary(ctx.gateway, out) if ctx.gateway is not None else None
+        self._remember(ctx, out)
         folder = ctx.cfg.data.parent / "output" / ctx.run_id
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "report.md").write_text(render_markdown(out))
@@ -78,3 +116,16 @@ class Reporter(Agent):
         ctx.scratch["output"], ctx.scratch["output_dir"] = out, folder
         return AgentResult(f"rating {out['rating']} with {len(out['reasons'])} reasons, "
                            f"{len(out['questions'])} questions", data={"dir": str(folder)})
+
+    def _remember(self, ctx: RunContext, out: dict) -> None:
+        """H-MEM: lessons for later runs, tagged with this run's as_of (never scored)."""
+        if ctx.memory is None:
+            return
+        bankers = [n.entity_id for n in ctx.named if n.role == "banker" and n.entity_id]
+        for line in ctx.scratch.get("layout_notes", []):
+            ctx.memory.add(line, as_of=ctx.as_of, tags=["rhp_layout"], entities=bankers,
+                           layer="long_term", agent_id="Extractor", run_id=ctx.run_id)
+        for note in out["skeptic_notes"]:
+            ctx.memory.add(f"{note['flag']} on {ctx.meta.get('company')}: {note['ruling']}. "
+                           f"{note['reason'][:240]}", as_of=ctx.as_of,
+                           tags=["skeptic", note["flag"]], agent_id="Skeptic", run_id=ctx.run_id)

@@ -318,6 +318,11 @@ def parse_structured(text: str, schema: type[BaseModel]) -> BaseModel:
     m = re.search(r"[\[{].*[\]}]", body, re.S)
     if m:
         candidates.append(m.group())
+    # A reasoning model may think aloud before answering: try the last
+    # balanced JSON value in the text as well.
+    tail = _last_json(body)
+    if tail:
+        candidates.append(tail)
     last: Exception | None = None
     for c in candidates:
         try:
@@ -325,6 +330,29 @@ def parse_structured(text: str, schema: type[BaseModel]) -> BaseModel:
         except ValidationError as e:
             last = e
     raise MalformedOutput(str(last)[:300] if last else "no JSON found")
+
+
+def _last_json(text: str) -> str | None:
+    """The last balanced {...} or [...] in the text (strings respected), if any."""
+    end = max(text.rfind("}"), text.rfind("]"))
+    while end >= 0:
+        close = text[end]
+        open_ = "{" if close == "}" else "["
+        depth, in_str, i = 0, False, end
+        while i >= 0:
+            ch = text[i]
+            if ch == '"' and (i == 0 or text[i - 1] != "\\"):
+                in_str = not in_str
+            elif not in_str:
+                if ch == close:
+                    depth += 1
+                elif ch == open_:
+                    depth -= 1
+                    if depth == 0:
+                        return text[i:end + 1]
+            i -= 1
+        end = max(text.rfind("}", 0, end), text.rfind("]", 0, end))
+    return None
 
 
 def routes_from_env(env: dict[str, str]) -> dict[str, str]:

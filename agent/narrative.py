@@ -92,7 +92,7 @@ class SectionResult:
 
 
 def read_section(gateway, pages: list[str], name: str, *, history: Path | None = None,
-                 run_id: str = "", on_event=None) -> SectionResult:
+                 run_id: str = "", on_event=None, memory_context: str = "") -> SectionResult:
     section = SECTIONS[name]
     windows = section_windows(pages, section)
     if not windows:
@@ -112,6 +112,7 @@ def read_section(gateway, pages: list[str], name: str, *, history: Path | None =
                 merged[k] = v
 
     run = engine.run(section.goal, mode="EXTRACT", reflect=False, run_id=run_id,
+                     memory_context=memory_context,
                      agent_id="Extractor", on_chunk=collect,
                      windows=[f"[page {p}]\n{text}" for p, text in windows])
     error = "" if run.status == "completed" else (run.error or run.status)

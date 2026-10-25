@@ -16,6 +16,7 @@ import time
 import uuid
 
 from agent.agents.banker import BankerTrackRecord
+from agent.agents.citations import CitationVerifier
 from agent.agents.base import Agent, AgentResult, RunContext
 from agent.agents.evaluator import Evaluator
 from agent.agents.extractor import Extractor
@@ -25,6 +26,7 @@ from agent.agents.narrative import NarrativeReader
 from agent.agents.planner import Planner
 from agent.agents.reporter import DISCLAIMER, Reporter
 from agent.agents.scorer import Scorer
+from agent.agents.skeptic import Skeptic
 from agent.agents.specialists import Specialists
 from agent.agents.watchlist import Watchlist
 from agent.config import Settings
@@ -39,8 +41,8 @@ TARGET_S, HARD_LIMIT_S = 180, 600
 # specialists: a mid-run escalation (two HIGH flags, a >= 5x insider discount)
 # is recorded there. Missing agents are skipped.
 PIPELINE = ["Intake", "Names", "BankerTrackRecord", "Watchlist", "Planner",
-            "Extractor", "Specialists", "NarrativeReader", "Escalation", "Scorer", "Evaluator",
-            "Reporter"]
+            "Extractor", "Specialists", "NarrativeReader", "Escalation", "Skeptic", "Scorer",
+            "Evaluator", "CitationVerifier", "Reporter"]
 
 
 class RunError(RuntimeError):
@@ -83,8 +85,8 @@ def data_client(cfg: Settings, sample_mode: bool):
 class Orchestrator:
     def __init__(self, agents: list[Agent] | None = None):
         agents = agents or [Intake(), Names(), BankerTrackRecord(), Watchlist(), Planner(),
-                            Extractor(), Specialists(), NarrativeReader(), Scorer(), Evaluator(),
-                            Reporter()]
+                            Extractor(), Specialists(), NarrativeReader(), Skeptic(), Scorer(),
+                            Evaluator(), CitationVerifier(), Reporter()]
         self.agents = {a.name: a for a in agents}
         if "Planner" in self.agents:
             self.agents["Escalation"] = self.agents["Planner"]
@@ -147,6 +149,13 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
     client, source = data_client(cfg, sample_mode)
     if gateway is None:
         gateway = model_gateway(cfg, sample_mode, tracer)
+    if memory is None:
+        from agent.engines.hmem import HMem
+        # Sample runs get a fresh, empty memory so they never depend on run order.
+        path = (cfg.logs / run_id / "memory.db") if sample_mode else (cfg.data / "memory.db")
+        memory = HMem(path, on_event=lambda e: tracer.event(
+            "HMEM", e["action"], f"{e['action']} {e.get('query', e.get('id', ''))}"[:120],
+            engine="hmem", **{k: v for k, v in e.items() if k not in ("action", "engine")}))
     ctx = RunContext(run_id=run_id, ipo_id=ipo_id, cfg=cfg, tracer=tracer, client=client,
                      source=source, sample_mode=sample_mode,
                      deadline=started + HARD_LIMIT_S, gateway=gateway, memory=memory)

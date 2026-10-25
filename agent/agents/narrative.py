@@ -25,6 +25,12 @@ class NarrativeReader(Agent):
                 ctx.case.add_not_checked(item, why, agent=self.name)
             return AgentResult(f"skipped: {why}")
         history = ctx.cfg.logs / ctx.run_id / "markovian.jsonl"
+        memory = ""
+        if ctx.memory is not None:      # H-MEM: how this banker's RHPs were laid out before
+            bankers = [n.entity_id for n in ctx.named if n.role == "banker" and n.entity_id]
+            memory = ctx.memory.context_block(ctx.memory.retrieve(
+                "RHP layout share capital history objects of the issue pages",
+                as_of=ctx.as_of, tags=["rhp_layout"], entities=bankers))
 
         def on_event(e):
             if e["phase"] in ("complete", "error"):
@@ -32,7 +38,8 @@ class NarrativeReader(Agent):
                                  f"{e['chunks']} chunk(s)", status=e["status"], engine="markovian")
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {n: pool.submit(read_section, ctx.gateway, pages, n, history=history,
-                                      run_id=ctx.run_id, on_event=on_event)
+                                      run_id=ctx.run_id, on_event=on_event,
+                                      memory_context=memory)
                        for n in ("capital", "objects")}
             results = {n: f.result() for n, f in futures.items()}
         done = []
@@ -51,6 +58,9 @@ class NarrativeReader(Agent):
         else:
             ctx.case.add_not_checked("F9 use of money", obj.error or "no objects table read",
                                      agent=self.name)
+        ctx.scratch.setdefault("layout_notes", []).extend(
+            f"{ctx.meta.get('banker_raw')} RHP: {r.name} section read from pages "
+            f"{r.pages[0]}-{r.pages[-1]}" for r in results.values() if r.pages and r.data.get("rows"))
         runs = [r.run for r in results.values() if r.run]
         saved = sum(r.total_tokens_saved for r in runs)
         return AgentResult(f"{', '.join(done) or 'no narrative flags'}; Markovian "

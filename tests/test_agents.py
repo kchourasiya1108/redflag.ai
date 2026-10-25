@@ -66,8 +66,13 @@ def test_confirmed_watchlist_link_flags_and_escalates(sample_cfg):
         conn.execute("UPDATE sebi_order_entity SET reviewed = 1 WHERE order_id = ?", hit)
     out = investigate(sample_cfg, DEMO, run_id="run-t2", sample_mode=True)
     f11 = [r for r in out["output"]["reasons"] if r["flag"] == "F11"]
-    assert f11 and f11[0]["severity"] == "HIGH" and f"sebi:{hit[0]}" in f11[0]["evidence"]
+    assert f11 and f"sebi:{hit[0]}" in f11[0]["evidence"]
     assert out["output"]["depth"] == FORENSIC
+    # Alone, a HIGH link is held at ELEVATED by the corroboration rule, with the reason given.
+    if not [r for r in out["output"]["reasons"] if r["flag"] != "F11"]:
+        assert f11[0]["severity"] == "ELEVATED"
+        notes = [n for n in out["output"]["skeptic_notes"] if n["flag"] == "F11"]
+        assert notes and "second, independent signal" in notes[0]["reason"]
 
 
 def test_watchlist_matches_typos_but_only_reviewed_rows_confirm(tmp_path):
