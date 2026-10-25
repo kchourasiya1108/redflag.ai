@@ -193,6 +193,11 @@ def f4_insider_discount(summary: dict) -> Finding | None:
     """IPO price over what insiders paid in the 18 months before the bid (narrative.py)."""
     disc = summary.get("insider_discount")
     if disc is None and not summary.get("bonus_in_window"):
+        # Clear only when the check ran: an issue price, every row readable, and
+        # no cash allotment in the window. Otherwise it is "not checked".
+        if (summary.get("recent_allotments") or summary.get("unparsed_rows")
+                or not summary.get("issue_price")):
+            return None
         return Finding("F4", "LOW", summary, f"No shares were allotted for cash in the 18 "
                        f"months before the bid (since {summary['window_start']}).",
                        summary.get("pages", []))

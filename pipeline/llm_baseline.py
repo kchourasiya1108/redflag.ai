@@ -19,7 +19,7 @@ import numpy as np
 from pydantic import BaseModel, Field
 
 from agent.rhp import load_pages, section_pages, statement_pages
-from pipeline.train import evaluate, load_dataset, split
+from pipeline.train import evaluate, load_dataset, split  # noqa: F401 (train rows unused)
 
 SYSTEM = "You are an analyst rating the risk of Indian SME IPOs from their prospectus alone."
 
@@ -62,12 +62,20 @@ def run_baseline(conn, gateway, cache, out_path, *, workers: int = 2, log=print)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         ps = list(pool.map(lambda r: rate(gateway, cache, r, docs.get(r["ipo_id"])), test))
     rated = [(r, p) for r, p in zip(test, ps) if p is not None]
-    base_rate = float(np.mean([r["y"] for r in train]))
+    # The scorer's own HIGH cut-off, and the scorer re-scored on exactly the same
+    # IPOs, so the two rows compare like with like.
+    import json as _json
+    from agent.scoring import score
+    scorer = _json.loads((out_path.parent.parent / "model" / "scorer.json").read_text())
+    high_at = scorer["bands"]["high_at"]
     y = np.array([r["y"] for r, _ in rated])
     p = np.array([p for _, p in rated])
+    s = np.array([score(r, scorer).p_adverse or scorer["bands"]["low_below"] for r, _ in rated])
+    ok = len(rated) > 0 and 0 < y.sum() < len(y)
     result = {"trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-              "test_ipos": len(test), "rated": len(rated),
-              "metrics": evaluate(y, p, round(min(2 * base_rate, 0.9), 4)) if len(rated) else None,
+              "test_ipos": len(test), "rated": len(rated), "high_at": high_at,
+              "metrics": evaluate(y, p, high_at) if ok else None,
+              "scorer_on_same_ipos": evaluate(y, s, high_at) if ok else None,
               "caveat": "Nemotron may have seen news about these IPOs in training; this can "
                         "only flatter the baseline."}
     out_path.parent.mkdir(parents=True, exist_ok=True)

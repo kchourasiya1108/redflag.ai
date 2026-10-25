@@ -155,6 +155,8 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
     started = time.perf_counter()
     tracer = Tracer(run_id, cfg.logs)
     client, source = data_client(cfg, sample_mode)
+    if isinstance(client, ZetarisRestClient):
+        client.deadline = started + HARD_LIMIT_S - 30
     if gateway is None:
         gateway = model_gateway(cfg, sample_mode, tracer)
     if gateway is not None:

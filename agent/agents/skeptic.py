@@ -59,7 +59,12 @@ class Skeptic(Agent):
                        key=lambda f: (f["id"] in ("F10", "F11"), f["severity"] != "HIGH",
                                       -f["confidence"]))
         depth = ctx.case.meta.get("depth")
-        flags = flags[:1] if depth == LIGHT else flags[:MAX_RULINGS]
+        keep = 1 if depth == LIGHT else MAX_RULINGS
+        for f in flags[keep:]:
+            ctx.case.add_not_checked(f"Skeptic on {f['id']}", "not reviewed: the Skeptic argues "
+                                     f"at most {keep} flag(s) per run at {depth} depth",
+                                     agent=self.name)
+        flags = flags[:keep]
         pages = ctx.scratch.get("pages") or []
         if ctx.gateway is not None and ctx.seconds_left() >= 150:
             from concurrent.futures import ThreadPoolExecutor
@@ -68,12 +73,19 @@ class Skeptic(Agent):
         else:
             asked = []
         rulings = []
+        if ctx.gateway is None or not asked:
+            for f in flags:
+                ctx.case.add_not_checked(f"Skeptic on {f['id']}", "no model configured"
+                                         if ctx.gateway is None else "the run's time limit is near",
+                                         agent=self.name)
         for flag, (ruling, pick) in asked:
             if isinstance(ruling, Exception):
                 ctx.case.add_not_checked(f"Skeptic on {flag['id']}", f"model unavailable: "
                                          f"{type(ruling).__name__}", agent=self.name)
                 continue
             if ruling is None:
+                ctx.case.add_not_checked(f"Skeptic on {flag['id']}", "the run's time limit is "
+                                         "near", agent=self.name)
                 continue
             shown = {f"rhp:p{p}" for p in pick}
             evidence = [e for e in ruling.evidence if e in shown]

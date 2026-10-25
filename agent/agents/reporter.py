@@ -57,13 +57,14 @@ def plain_summary(gateway, out: dict) -> str | None:
     the evidence and it gives no advice or accusation; otherwise None."""
     # A compact block: long prompts fail on Nightshift's extract lane ("Load
     # failed", measured 26 Oct); numbers are still checked against the full output.
-    evidence = json.dumps({
-        "rating": out["rating"],
-        "reasons": [f"{r.get('flag', '')} {r.get('severity', '')}: {r.get('text', '')}"
+    shown = {
+        "rating": out["rating"], "probability": out["p_adverse"],
+        "reasons": [f"{r.get('flag', '')} {r.get('severity', '')}: {r.get('text', '')[:220]}"
                     for r in out["reasons"]],
         "skeptic": [f"{s.get('flag', '')} {s.get('ruling', '')}" for s in out["skeptic_notes"]],
-        "passed": [f"{c.get('flag', '')}: {c.get('text', '')}" for c in out["cleared_checks"]][:4],
-        "questions": len(out["questions"])}, default=str)[:3000]
+        "passed": [c.get("flag", "") for c in out["cleared_checks"]],
+        "not_checked": len(out["not_checked"]), "questions": len(out["questions"])}
+    evidence = json.dumps(shown, default=str)
     prompt = ("Write a plain-language summary (at most 120 words) of this IPO risk report for "
               "a retail investor. Use only facts and numbers that appear below. Neutral wording: "
               "say an entity was 'named in an order', never that anyone did wrong. Do not tell "
@@ -76,7 +77,7 @@ def plain_summary(gateway, out: dict) -> str | None:
     except Exception:
         return None
     numbers = set(re.findall(r"\d+(?:\.\d+)?", _ungroup(text)))
-    if _BANNED.search(text) or not numbers <= allowed_numbers(out):
+    if _BANNED.search(text) or not numbers <= allowed_numbers(shown):   # only what it saw
         return None
     return text
 

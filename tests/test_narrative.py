@@ -122,3 +122,24 @@ def test_f8_uses_the_issuers_row_and_f4_clears_without_allotments():
     assert s["issue_pe"] == 38.35 and round(s["premium"], 1) == 3.9
     none = insider_discount([{"date": "2016-01-01", "shares": 1, "issue_price": 10}], 100.0, AS_OF)
     assert f4_insider_discount(none).severity == "LOW"
+
+
+def test_review_fixes_f4_f8_f9_f6():
+    from agent.narrative import peer_valuation, rpt_share
+    rows = [{"date": "2024-09-01", "shares": 100, "issue_price": 40, "consideration": "cash"}]
+    assert f4_insider_discount(insider_discount(rows, 0.0, AS_OF)) is None      # no issue price
+    unread = [{"date": "around 2024", "shares": "many", "issue_price": 5}]
+    assert f4_insider_discount(insider_discount(unread, 100.0, AS_OF)) is None  # rows unreadable
+    s = peer_valuation({"issue_pe": 30, "peers": [{"name": "XYZ Technologies Ltd", "pe": 60},
+                                                  {"name": "PQR Infotech", "pe": 20}]},
+                       "ABC Technologies Limited")
+    assert s["peer_median_pe"] == 40.0 and s["issue_pe"] == 30                  # XYZ kept
+    data = {"unit": "lakh", "gross_proceeds": None, "rows": [
+        {"object": "Working capital", "kind": "working_capital", "amount": 600},
+        {"object": "GCP", "kind": "gcp", "amount": 100}]}
+    assert objects_summary(data, AS_OF, gross_cr=700.0)["gross_cr"] == 7.0   # 100x misread
+    rpt = {"unit": "lakh", "rows": [
+        {"party": "A", "nature": "sale", "fiscal_year": "2024-03-31", "amount": 100},
+        {"party": "A", "nature": "sale", "fiscal_year": "2024-03-31", "amount": 100},
+        {"party": "Total", "nature": "sale", "fiscal_year": "2024-03-31", "amount": 100}]}
+    assert rpt_share(rpt, {"FY24": 10.0})["rpt_cr"] == 1.0

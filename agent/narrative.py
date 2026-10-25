@@ -76,7 +76,8 @@ SECTIONS = {
         '"million" | "rupee" as printed, "rows": [{"party": name, "relationship": as printed, '
         '"nature": "sale" | "purchase" | "rent" | "remuneration" | "loan_given" | "loan_taken" | '
         '"guarantee" | "other", "fiscal_year": the year-end of the column as YYYY-MM-DD, '
-        '"amount": number as printed, "page": N}]} for this part only.', max_pages=3),
+        '"amount": number as printed, "page": N}]} for this part only. One row per party '
+        'and transaction; leave out total and subtotal rows.', max_pages=3),
 }
 
 
@@ -169,17 +170,21 @@ def _date(v) -> date | None:
 def insider_discount(rows: list[dict], issue_price: float, as_of: date) -> dict:
     """IPO price over the weighted price paid in allotments of the 18 months before as_of."""
     start = as_of - timedelta(days=INSIDER_WINDOW_DAYS)
-    recent, bonus = [], []
+    recent, bonus, unparsed = [], [], 0
     for r in rows:
         d, shares, price = _date(r.get("date")), _num(r.get("shares")), _num(r.get("issue_price"))
-        if d is None or shares is None or not (start <= d < as_of):
+        if d is None or shares is None:
+            unparsed += 1
+            continue
+        if not (start <= d < as_of):
             continue
         if str(r.get("consideration", "")).lower() == "bonus" or "bonus" in str(
                 r.get("nature", "")).lower():
             bonus.append(r)
         elif price:                     # a missing price (a swap, "N.A.") is not evidence
             recent.append((shares, price, r))
-    out = {"recent_allotments": len(recent), "bonus_in_window": bool(bonus), "window_start":
+    out = {"recent_allotments": len(recent), "bonus_in_window": bool(bonus),
+           "unparsed_rows": unparsed, "issue_price": issue_price or None, "window_start":
            start.isoformat(), "pages": sorted({int(_num(r.get("page")) or 0) for *_, r in recent
                                               if _num(r.get("page"))})}
     if recent and issue_price:
@@ -198,19 +203,37 @@ def _median(values: list[float]) -> float | None:
     return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
 
 
+_GENERIC = {"limited", "ltd", "private", "india", "indian", "industries", "industry",
+            "technologies", "technology", "tech", "solutions", "engineering", "enterprises",
+            "enterprise", "services", "systems", "products", "international", "global",
+            "ventures", "projects", "infra", "infrastructure", "foods", "pharma", "textiles",
+            "corporation", "company", "group", "holdings", "digital", "trading", "exports"}
+
+
+def _distinctive(name: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z]{3,}", name.lower()) if w not in _GENERIC]
+
+
+def _is_issuer(own: list[str], name: str) -> bool:
+    """The issuer's row: its first distinctive word matches, and every distinctive word
+    of the issuer appears (generic words such as 'Technologies' never decide it)."""
+    words = set(_distinctive(name))
+    return bool(own) and own[0] in words and set(own) <= words | {own[0]}
+
+
 def peer_valuation(data: dict, company: str = "") -> dict:
     """Issue P/E over the median P/E of the listed peers the RHP itself chose (F8)."""
-    own = set(re.findall(r"[a-z]{4,}", company.lower())) - {"limited", "private", "india"}
+    own = _distinctive(company)
     peers = []
     for p in data.get("peers", []):
         name = str(p.get("name", ""))
-        if own and own & set(re.findall(r"[a-z]{4,}", name.lower())):
+        if _is_issuer(own, name):
             continue                    # the issuer's own row in the table
         pe = _num(p.get("pe"))
         if pe and pe > 0:
             peers.append({"name": name, "pe": pe, "page": _num(p.get("page"))})
     own_pe = [_num(p.get("pe")) for p in data.get("peers", [])
-              if own and own & set(re.findall(r"[a-z]{4,}", str(p.get("name", "")).lower()))]
+              if _is_issuer(own, str(p.get("name", "")))]
     issue_pe = _num(data.get("issue_pe")) or next((x for x in own_pe if x), None)
     med = _median([p["pe"] for p in peers])
     return {"issue_pe": issue_pe, "peer_median_pe": med, "peers": peers,
@@ -224,10 +247,17 @@ def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:
     if factor is None:
         return {"error": "unit not stated"}
     by_fy: dict[str, float] = {}
-    pages = set()
+    pages, seen = set(), set()
     for r in data.get("rows", []):
         if r.get("nature") not in ("sale", "purchase"):
             continue
+        if re.search(r"(?i)\btotal\b", f"{r.get('party', '')} {r.get('relationship', '')}"):
+            continue                    # a total row would double the amount
+        key = (str(r.get("party", "")).lower().strip(), r.get("nature"), r.get("fiscal_year"),
+               str(r.get("amount")))
+        if key in seen:                 # the same row read in two overlapping windows
+            continue
+        seen.add(key)
         d, amount = _date(r.get("fiscal_year")), _num(r.get("amount"))
         if d is None or amount is None:
             continue
@@ -249,11 +279,15 @@ _GROSS = re.compile(r"(?i)gross\s+proceeds[^\n]{0,80}?(\d[\d,]*\.\d{2})\b")
 def printed_gross(pages: list[str], window: list[int]) -> float | None:
     """Gross proceeds as printed on the objects pages, in crore (read in code)."""
     from agent.rhp import find_unit
-    # The section's own pages first, then the whole RHP (the line is often on
-    # the objects page, after the issue summary where the section was found).
-    for p in list(window) + [i for i in range(1, len(pages) + 1) if i not in window]:
+    # The section's own pages first, then other pages about the use of the
+    # proceeds (the line is often on the objects page, after the issue summary).
+    others = [i for i in range(1, len(pages) + 1) if i not in window
+              and re.search(r"(?i)objects?\s+of\s+the\s+(?:issue|offer)|net\s+proceeds", pages[i - 1])]
+    for p in list(window) + others:
         text = pages[p - 1]
-        m, unit = _GROSS.search(text), find_unit(text)
+        m = _GROSS.search(text)
+        # The unit printed closest above the line (a table's "(Rs. in lakhs)").
+        unit = find_unit(text[max(0, m.start() - 1500):m.end()]) if m else None
         if m and unit:
             return float(m.group(1).replace(",", "")) * UNIT_TO_CRORE[unit]
     return None
@@ -278,7 +312,8 @@ def objects_summary(data: dict, as_of: date | None = None, gross_cr: float | Non
     # The RHP's own "Gross Proceeds" line (read in code) wins; a total smaller
     # than the uses it funds cannot be right.
     gross = gross_cr or (stated * factor if stated else None)
-    if gross is None or (uses and gross < uses * 0.99):
+    # A gross below the uses it funds, or far above them, is a misread.
+    if gross is None or (uses and not uses * 0.99 <= gross <= uses * 1.5):
         gross = uses
     gcp, wc = by_kind.get("gcp"), by_kind.get("working_capital")
     cap = gcp_cap(gross, as_of or date.today()) if gross else None

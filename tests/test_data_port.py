@@ -150,3 +150,19 @@ def test_rest_client_retries_only_transient_errors(status, calls):
     with pytest.raises(ZetarisError, match=f"HTTP {status}"):
         client.query("SELECT 1", 1)
     assert len(seen) == calls and len(set(seen)) == calls
+
+
+def test_rest_client_does_not_retry_past_the_deadline():
+    import time
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(503, text="busy")
+    client = ZetarisRestClient("http://z.test/api/v1.0", "k", "1", retries=3, backoff_s=5,
+                               transport=httpx.MockTransport(handler))
+    client.deadline = time.perf_counter() + 10          # less than a pause plus a timeout
+    t0 = time.perf_counter()
+    with pytest.raises(ZetarisError):
+        client.query("SELECT 1", 1)
+    assert len(calls) == 1 and time.perf_counter() - t0 < 2

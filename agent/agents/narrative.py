@@ -37,6 +37,7 @@ class NarrativeReader(Agent):
         if (ctx.gateway is None or not pages or depth not in SECTIONS_BY_DEPTH
                 or ctx.seconds_left() < 180):
             why = ("no model configured" if ctx.gateway is None else "no RHP text" if not pages
+                   else f"no sections are read at depth {depth}" if depth not in SECTIONS_BY_DEPTH
                    else "the run's time limit is near")
             for item in ("F4 insider discount", "F6 related parties", "F8 valuation vs peers",
                          "F9 use of money"):

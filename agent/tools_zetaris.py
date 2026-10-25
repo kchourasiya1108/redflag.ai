@@ -76,13 +76,19 @@ class ZetarisRestClient:
             raise ZetarisError("ZETARIS_REST_URL and ZETARIS_API_KEY must be set")
         self.retries = retries
         self.backoff_s = backoff_s          # doubles per retry: rides out a short LAN drop
+        self.timeout_s = timeout_s
+        self.deadline: float | None = None  # time.perf_counter(); no retry would end after it
         self._http = httpx.Client(timeout=timeout_s, transport=transport)
 
     def query(self, sql: str, limit: int) -> tuple[list[str], list[list[Any]], float]:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             if attempt and self.backoff_s:
-                time.sleep(self.backoff_s * 2 ** (attempt - 1))
+                pause = self.backoff_s * 2 ** (attempt - 1)
+                if (self.deadline is not None
+                        and time.perf_counter() + pause + self.timeout_s > self.deadline):
+                    break               # no time left for another try
+                time.sleep(pause)
             # A fresh queryId per attempt: Zetaris rejects a reused one.
             body = {"queryId": str(uuid.uuid4()), "sql": sql, "source": "SqlEditor",
                     "limit": limit}
