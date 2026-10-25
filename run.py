@@ -1,0 +1,112 @@
+"""RedFlag entry point.
+
+    python run.py universe prices labels   # run offline stages in order
+    python run.py all                      # every offline stage
+    python run.py check [stage ...]        # print stage gates
+    python run.py universe --limit 5       # quick probe on a few rows
+    python run.py sebi-review export       # SEBI links for a person to review
+    python run.py sebi-review import       # read the reviewed CSV back
+    python run.py explain-label NSE-2024-X # show how one label was computed
+    python run.py zetaris render|load-pg|register|check   # Zetaris setup
+    python run.py investigate NSE-2023-SYNOPTICS  # one run, JSON to stdout
+    python run.py serve                    # FastAPI on 0.0.0.0:$PORT
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+
+from redflag.common.db import connect
+from redflag.common.http import Fetcher
+from redflag.common.log import StageLog
+from redflag.config import settings
+from redflag.pipeline import STAGES, stage_module
+from redflag.pipeline.base import StageContext
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="run.py")
+    parser.add_argument("stages", nargs="+",
+                        help=f"'all', 'check', or any of: {', '.join(STAGES)}")
+    parser.add_argument("--limit", type=int, help="process at most N rows")
+    args = parser.parse_args(argv)
+    cfg = settings()
+    conn = connect(cfg.archive_db)
+
+    if args.stages[0] == "sebi-review":
+        from redflag.pipeline import sebi
+        path = cfg.data / "review" / "sebi_entities.csv"
+        if args.stages[1:] == ["export"]:
+            print(f"wrote {sebi.export_review(conn, path)} rows to {path}")
+        elif args.stages[1:] == ["import"]:
+            print(f"updated {sebi.import_review(conn, path)} reviewed rows from {path}")
+        else:
+            parser.error("use: sebi-review export|import")
+        return 0
+
+    if args.stages[0] == "investigate":
+        import json
+        from redflag.service import investigate
+        print(json.dumps(investigate(cfg, args.stages[1]), indent=2, default=str))
+        return 0
+
+    if args.stages[0] == "serve":
+        import os
+        import uvicorn
+        uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+        return 0
+
+    if args.stages[0] == "zetaris":
+        from redflag.data import zetaris_setup
+        from redflag.data.clients import MockZetaris, ZetarisRestClient
+        action = args.stages[1:] or ["render"]
+        if action == ["render"]:
+            print("\n\n".join(s.masked + ";" for s in zetaris_setup.statements()))
+        elif action == ["load-pg"]:
+            zetaris_setup.load_postgres(cfg.data / "publish" / "postgres")
+        elif action == ["register"]:
+            zetaris_setup.register(ZetarisRestClient())
+        elif action == ["check"]:
+            ok = zetaris_setup.check(ZetarisRestClient(), MockZetaris(cfg.archive_db))
+            return 0 if ok else 1
+        else:
+            parser.error("use: zetaris render|load-pg|register|check")
+        return 0
+
+    if args.stages[0] == "audit":
+        from redflag.pipeline import audit
+        print(audit.render(audit.run_audit(conn, cfg)))
+        return 0
+
+    if args.stages[0] == "explain-label":
+        from redflag.pipeline import labels
+        print("\n".join(labels.explain(conn, i) for i in args.stages[1:]))
+        return 0
+
+    if args.stages[0] == "check":
+        names = args.stages[1:] or list(STAGES)
+        gates = [stage_module(n).gate(conn, cfg) for n in names]
+        print("\n".join(g.render() for g in gates))
+        return 0 if all(g.passed for g in gates) else 1
+
+    names = list(STAGES) if args.stages == ["all"] else args.stages
+    fetcher = Fetcher(cfg.http_min_interval_s, cfg.http_timeout_s)
+    try:
+        for name in names:
+            module = stage_module(name)
+            log = StageLog(name, cfg.logs, cfg.failures_csv)
+            started = time.monotonic()
+            log.info("starting")
+            summary = module.run(StageContext(cfg, conn, fetcher, log, args.limit))
+            log.info(f"done in {time.monotonic() - started:.1f}s "
+                     f"({log.failure_count} failures)", **(summary or {}))
+            print(module.gate(conn, cfg).render())
+    finally:
+        fetcher.close()
+        conn.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

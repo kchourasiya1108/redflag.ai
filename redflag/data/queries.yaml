@@ -1,0 +1,69 @@
+# Named SQL templates: the only way agents and compute_features read data.
+# Sources are Zetaris names (RF_ARCHIVE, RF_LIVE, RF_PRICES); MockZetaris
+# serves the same names from SQLite, so this exact SQL runs in both modes.
+#
+# Every template either declares a time_rule on a returned column, which the
+# Leakage Guard enforces against the run's as_of, or is marked time_free
+# (reference data that is known at the bid date). See docs/DESIGN.md.
+
+ipo_bankers:
+  time_free: true      # lead managers are printed on the RHP cover
+  params: {ipo_id: id}
+  columns: {banker_id: int, canonical_name: str, position: int}
+  max_rows: 20
+  sql: >
+    SELECT b.banker_id, b.canonical_name, ib.position
+    FROM RF_ARCHIVE.ipo_banker ib
+    JOIN RF_ARCHIVE.bankers b ON b.banker_id = ib.banker_id
+    WHERE ib.ipo_id = :ipo_id
+    ORDER BY ib.position
+
+banker_track_record:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {banker_id: int, as_of: date}
+  columns: {ipo_id: str, ret_6m: float, crashed: int, suspended: int,
+            sebi_action: int, sebi_action_date: date, outcome_known_on: date}
+  max_rows: 2000
+  sql: >
+    SELECT l.ipo_id, l.ret_6m, l.crashed, l.suspended, l.sebi_action,
+           l.sebi_action_date, l.outcome_known_on
+    FROM RF_ARCHIVE.ipo_banker ib
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = ib.ipo_id
+    WHERE ib.banker_id = :banker_id
+      AND l.outcome_known_on < :as_of
+
+outcomes_known_before:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {as_of: date}
+  columns: {ipo_id: str, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 20000
+  sql: >
+    SELECT l.ipo_id, l.crashed, l.suspended, l.sebi_action,
+           l.sebi_action_date, l.outcome_known_on
+    FROM RF_ARCHIVE.labels l
+    WHERE l.outcome_known_on < :as_of
+
+labelled_ipos:
+  time_free: true      # offline training only: the list of IPOs to backtest
+  offline_only: true
+  params: {}
+  columns: {ipo_id: str, open_date: date, adverse: int, crashed: int,
+            ret_6m: float}
+  max_rows: 20000
+  sql: >
+    SELECT i.ipo_id, i.open_date, l.adverse, l.crashed, l.ret_6m
+    FROM RF_ARCHIVE.ipos i
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = i.ipo_id
+    ORDER BY i.open_date
+
+ipo_meta:
+  time_free: true      # cover-page facts of the IPO being judged
+  params: {ipo_id: id}
+  columns: {ipo_id: str, company: str, symbol: str, exchange: str, open_date: date,
+            issue_price: float, banker_raw: str, rhp_url: str}
+  max_rows: 1
+  sql: >
+    SELECT ipo_id, company, symbol, exchange, open_date, issue_price, banker_raw, rhp_url
+    FROM RF_ARCHIVE.ipos
+    WHERE ipo_id = :ipo_id

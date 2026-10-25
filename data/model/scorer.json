@@ -1,0 +1,43 @@
+{
+  "version": "v0-banker",
+  "features": [
+    "f_banker_crash",
+    "f_banker_low_history",
+    "f_banker_median_ret"
+  ],
+  "columns": [
+    "f_banker_crash",
+    "f_banker_crash__missing",
+    "f_banker_low_history",
+    "f_banker_low_history__missing",
+    "f_banker_median_ret",
+    "f_banker_median_ret__missing"
+  ],
+  "coef": [
+    0.129296,
+    -0.619545,
+    0.221896,
+    0.267296,
+    -0.658391,
+    -0.262898
+  ],
+  "intercept": -1.755243,
+  "fill": {
+    "f_banker_crash": 0.03484362859362859,
+    "f_banker_low_history": 1.0,
+    "f_banker_median_ret": 0.603846
+  },
+  "bands": {
+    "low_below": 0.0974,
+    "high_at": 0.1949
+  },
+  "calibration": "logistic (Platt); refit in v2",
+  "trained_on": {
+    "train": 390,
+    "test": 205,
+    "train_from": "2022-12-13",
+    "train_to": "2024-10-22",
+    "test_from": "2025-05-09",
+    "test_to": "2025-12-31"
+  }
+}
