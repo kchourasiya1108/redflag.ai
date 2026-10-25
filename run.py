@@ -41,8 +41,15 @@ def main(argv: list[str]) -> int:
             print(f"wrote {sebi.export_review(conn, path)} rows to {path}")
         elif args.stages[1:] == ["import"]:
             print(f"updated {sebi.import_review(conn, path)} reviewed rows from {path}")
+        elif args.stages[1:] == ["model"]:
+            from agent.llm import Budget, gateway_from_env
+            from pipeline import sebi_review
+            gateway = gateway_from_env(cfg.data)
+            gateway.budget = Budget(max_calls=2000, max_tokens=50_000_000)
+            print(sebi_review.model_review(conn, lambda: connect(cfg.archive_db), gateway,
+                                           cfg.cache, limit=args.limit))
         else:
-            parser.error("use: sebi-review export|import")
+            parser.error("use: sebi-review export|import|model")
         return 0
 
     if args.stages[0] == "investigate":

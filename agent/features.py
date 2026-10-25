@@ -9,18 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from statistics import median
-from typing import Protocol
 
 from agent.engines.world import decide, name_similarity
+from agent.specialists import ArchiveFacts, FactSource, rhp_features
 from agent.tools_zetaris import DataPort
 
 SHRINK_K = 5            # pseudo-IPOs pulling a thin track record to the overall rate
 LOW_HISTORY_N = 5       # fewer known outcomes than this is a "thin history"
-
-
-class FactSource(Protocol):
-    def get(self, field: str, fiscal_year: str = "") -> float | None:
-        ...
 
 
 def adverse_as_of(row: dict, as_of: date) -> bool:
@@ -80,7 +75,7 @@ class Link:
     hop: int                    # 1 = named directly; 2 = through one other entity
     similarity: float
     via: str = ""               # the intermediate entity on a 2-hop path
-    status: str = "pending"     # confirmed | pending (awaiting human review) | near_match
+    status: str = "pending"     # confirmed | pending (not reviewed yet) | near_match
 
     @property
     def confirmed(self) -> bool:
@@ -105,8 +100,9 @@ def watchlist_links(data: DataPort, ipo_id: str, as_of: date,
     Hop 1: the party itself is named in an order (same archive id, or a name
     match at similarity >= 0.85; 0.82-0.85 is a near match, never a flag).
     Hop 2: a lead manager's earlier issue (opened before as_of) was named.
-    A link is `confirmed` only when a person has reviewed that order row
-    (reviewed = 1); rows marked -1 are dropped, unreviewed rows stay pending.
+    A link is `confirmed` only when that order row was reviewed as a match
+    (reviewed = 1, by Nemotron or a person); rows marked -1 are dropped and
+    unreviewed rows stay pending.
     """
     orders = [o for o in data.run("sebi_named_before", as_of=as_of).rows if o["reviewed"] != -1]
 
@@ -190,5 +186,7 @@ def compute_features(ipo_id: str, as_of: date, data: DataPort,
         meta = data.run("ipo_meta", ipo_id=ipo_id).rows
         named = archive_parties(data, ipo_id, meta[0]["company"] if meta else ipo_id)
     features |= watchlist_features(watchlist_links(data, ipo_id, as_of, named))
-    # RHP features (F1-F9) join here once extraction lands; they read `facts`.
+    # RHP features: verified restated numbers only. The backtest reads past
+    # extractions from Zetaris (ArchiveFacts); a live run passes CaseFileFacts.
+    features |= rhp_features(facts if facts is not None else ArchiveFacts(data, ipo_id))
     return features

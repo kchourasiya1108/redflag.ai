@@ -15,6 +15,7 @@ STAGES = {
     "rhp": "pipeline.rhp",                    # NSE RHP downloads
     "offer_facts": "pipeline.offer_facts",    # lot size, CIN/NIC, market maker, auditor
     "intermediaries": "pipeline.intermediaries",  # registrar + market maker masters
+    "extract": "pipeline.extract",                # restated financials -> facts (no LLM)
     "features": "pipeline.features",
     "train": "pipeline.train",
     "publish": "pipeline.publish",

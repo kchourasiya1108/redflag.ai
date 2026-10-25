@@ -25,7 +25,9 @@ _ADDED_COLUMNS = [("ipos", "issue_price_basis", "TEXT"), ("ipos", "cin", "TEXT")
                   ("ipos", "lot_size_source", "TEXT"), ("securities", "first_lot", "INTEGER"),
                   ("securities", "first_lot_date", "TEXT"), ("ipos", "registrar_id", "INTEGER"),
                   ("labels", "index_name", "TEXT"), ("labels", "index_ret_6m", "REAL"),
-                  ("labels", "crashed_vs_index", "INTEGER")]
+                  ("labels", "crashed_vs_index", "INTEGER"),
+                  ("sebi_order_entity", "reviewer", "TEXT"),        # person, or nemotron:<model>
+                  ("sebi_order_entity", "review_reason", "TEXT")]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

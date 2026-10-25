@@ -18,11 +18,14 @@ import uuid
 from agent.agents.banker import BankerTrackRecord
 from agent.agents.base import Agent, AgentResult, RunContext
 from agent.agents.evaluator import Evaluator
+from agent.agents.extractor import Extractor
 from agent.agents.intake import Intake, UnknownIPO
 from agent.agents.names import Names
+from agent.agents.narrative import NarrativeReader
 from agent.agents.planner import Planner
 from agent.agents.reporter import DISCLAIMER, Reporter
 from agent.agents.scorer import Scorer
+from agent.agents.specialists import Specialists
 from agent.agents.watchlist import Watchlist
 from agent.config import Settings
 from agent.tools_zetaris import MockZetaris, ZetarisRestClient
@@ -32,16 +35,41 @@ __all__ = ["investigate", "RunError", "DISCLAIMER", "Orchestrator"]
 
 TARGET_S, HARD_LIMIT_S = 180, 600
 
-# The fixed order of a run. Optional stages (extraction, specialists, the
-# Skeptic) are skipped, with a note, until their agents are present.
+# The order of a run. "Escalation" is the Planner's second look after the
+# specialists: a mid-run escalation (two HIGH flags, a >= 5x insider discount)
+# is recorded there. Missing agents are skipped.
 PIPELINE = ["Intake", "Names", "BankerTrackRecord", "Watchlist", "Planner",
-            "Scorer", "Evaluator", "Reporter"]
+            "Extractor", "Specialists", "NarrativeReader", "Escalation", "Scorer", "Evaluator",
+            "Reporter"]
 
 
 class RunError(RuntimeError):
     def __init__(self, type_: str, message: str, recoverable: bool):
         super().__init__(message)
         self.type, self.recoverable = type_, recoverable
+
+
+def model_gateway(cfg: Settings, sample_mode: bool, tracer: Tracer):
+    """The Model Gateway for one run: Nightshift live, recorded replies in sample mode.
+
+    Every call is traced with the model that actually served it (the Nemotron
+    evidence), its tokens, and whether it came from the cache or a replay.
+    """
+    from agent.llm import gateway_from_env
+
+    def on_call(e: dict) -> None:
+        if e["action"] == "model.call":
+            tracer.event("ModelGateway", "model.call",
+                         f"{e['purpose']}: {e['served_model'] or e['route']} "
+                         f"({e['tokens_in']}+{e['tokens_out']} tokens"
+                         + (", cached" if e["cached"] else ", replayed" if e["replayed"] else "")
+                         + ")", **e)
+        else:
+            tracer.event("ModelGateway", e["action"], e.get("error", "")[:160], status="retry",
+                         **{k: v for k, v in e.items() if k != "action"})
+    gateway = gateway_from_env(cfg.data, on_call=on_call)
+    gateway.sample_mode = sample_mode
+    return gateway if gateway.providers or sample_mode else None
 
 
 def data_client(cfg: Settings, sample_mode: bool):
@@ -55,8 +83,11 @@ def data_client(cfg: Settings, sample_mode: bool):
 class Orchestrator:
     def __init__(self, agents: list[Agent] | None = None):
         agents = agents or [Intake(), Names(), BankerTrackRecord(), Watchlist(), Planner(),
-                            Scorer(), Evaluator(), Reporter()]
+                            Extractor(), Specialists(), NarrativeReader(), Scorer(), Evaluator(),
+                            Reporter()]
         self.agents = {a.name: a for a in agents}
+        if "Planner" in self.agents:
+            self.agents["Escalation"] = self.agents["Planner"]
 
     def next_state(self, current: str, result: AgentResult, ctx: RunContext) -> str | None:
         if current == "Reporter":
@@ -67,6 +98,8 @@ class Orchestrator:
             return "Scorer" if "score" not in ctx.scratch else "Reporter"
         if current == "Evaluator" and result.target == "Planner":
             return "Planner"            # a re-plan re-runs the depth's work, not the lookups
+        if current == "Planner" and ctx.scratch.get("replans"):
+            return "Extractor" if "Extractor" in self.agents else self._after(current)
         return self._after(current)
 
     def _after(self, current: str) -> str:
@@ -80,6 +113,7 @@ class Orchestrator:
         state: str | None = "Intake"
         while state:
             agent = self.agents[state]
+            ctx.scratch["state"] = state
             t0 = time.perf_counter()
             result = agent.run(ctx)
             if state == "Scorer":
@@ -98,7 +132,8 @@ class Orchestrator:
 
 
 def _action(state: str) -> str:
-    return {"Intake": "start", "Planner": "plan", "Scorer": "score", "Evaluator": "evaluate",
+    return {"Intake": "start", "Planner": "plan", "Escalation": "escalation_check",
+            "Scorer": "score", "Evaluator": "evaluate",
             "Reporter": "final_synthesis"}.get(state, "delegate_task")
 
 
@@ -110,6 +145,8 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
     started = time.perf_counter()
     tracer = Tracer(run_id, cfg.logs)
     client, source = data_client(cfg, sample_mode)
+    if gateway is None:
+        gateway = model_gateway(cfg, sample_mode, tracer)
     ctx = RunContext(run_id=run_id, ipo_id=ipo_id, cfg=cfg, tracer=tracer, client=client,
                      source=source, sample_mode=sample_mode,
                      deadline=started + HARD_LIMIT_S, gateway=gateway, memory=memory)

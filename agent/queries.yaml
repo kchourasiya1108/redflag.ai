@@ -135,3 +135,24 @@ entity_edges_before:
     SELECT src_id, dst_id, type, source_ref, valid_from
     FROM RF_ARCHIVE.entity_edge
     WHERE valid_from < :as_of
+
+ipo_facts:
+  time_free: true      # numbers printed in the IPO's own RHP, published before as_of
+  params: {ipo_id: id}
+  columns: {field: str, fiscal_year: str, value: float, unit: str, page: int,
+            verified: int, method: str}
+  max_rows: 2000
+  sql: >
+    SELECT field, fiscal_year, value, unit, page, verified, method
+    FROM RF_ARCHIVE.facts
+    WHERE ipo_id = :ipo_id
+
+ipo_rhp_doc:
+  time_free: true      # the RHP is published before the bid opens
+  params: {ipo_id: id}
+  columns: {doc_type: str, sha256: str, pages: int, text_pages: int, status: str, url: str}
+  max_rows: 5
+  sql: >
+    SELECT doc_type, sha256, pages, text_pages, status, url
+    FROM RF_ARCHIVE.docs
+    WHERE ipo_id = :ipo_id

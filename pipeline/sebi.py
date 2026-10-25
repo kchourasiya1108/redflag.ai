@@ -11,9 +11,10 @@ This stage:
    caches its text;
 4. proposes `sebi_order_entity` rows with reviewed = 0.
 
-Nothing here raises a flag or a label by itself: a person reviews each
-proposed row (`python run.py sebi-review export|import`), and only rows with
-reviewed = 1 are used. Entity extraction from the PDF text with an LLM
+Nothing here raises a flag or a label by itself: each proposed row is
+reviewed, by Nemotron (`python run.py sebi-review model`, the default since
+25 Oct 2026) or by a person (`sebi-review export|import`, which can overrule
+the model), and only rows with reviewed = 1 are used. `reviewer` records who. Entity extraction from the PDF text with an LLM
 (promoters, directors, auditors named inside the order) comes with the model
 gateway; until then the proposals come from title matches only.
 """
@@ -214,7 +215,8 @@ def export_review(conn, path: Path) -> int:
     """Write proposed links for a person to confirm (set reviewed to 1 or -1)."""
     rows = conn.execute(
         """SELECT e.order_id, o.order_date, o.order_type, o.title, o.url,
-                  e.entity_name, e.entity_role, e.entity_id, e.reviewed
+                  e.entity_name, e.entity_role, e.entity_id, e.reviewed, e.reviewer,
+                  e.review_reason
            FROM sebi_order_entity e JOIN sebi_orders o USING (order_id)
            ORDER BY o.order_date""").fetchall()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,8 +233,8 @@ def import_review(conn, path: Path) -> int:
         for r in csv.DictReader(f):
             if r.get("reviewed") in ("1", "-1"):
                 n += conn.execute(
-                    "UPDATE sebi_order_entity SET reviewed=? WHERE order_id=? "
-                    "AND entity_name=? AND entity_role=?",
+                    "UPDATE sebi_order_entity SET reviewed=?, reviewer='person' WHERE "
+                    "order_id=? AND entity_name=? AND entity_role=?",
                     (int(r["reviewed"]), r["order_id"], r["entity_name"],
                      r["entity_role"])).rowcount
     conn.commit()

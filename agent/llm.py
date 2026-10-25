@@ -170,13 +170,23 @@ class Gateway:
     record_replay: bool = False
     vision_model: str | None = None
     routes: dict[str, str] = field(default_factory=dict)  # role -> route or model id
+    role_system: dict[str, str] = field(default_factory=dict)     # role -> system prefix
+    role_max_tokens: dict[str, int] = field(default_factory=dict)  # role -> default budget
+    retry_backoff_s: float = 0.0        # pause before a retry (provider 5xx, empty reply)
     budget: Budget = field(default_factory=Budget)
     on_call: Callable[[dict], None] | None = None     # trace hook
 
     def generate(self, prompt: str, system: str | None = None, *,
                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
-                 purpose: str = "", max_tokens: int = 2048,
+                 purpose: str = "", max_tokens: int | None = None,
                  images: list[bytes] | None = None) -> GenResult:
+        # Reasoning models spend the token budget thinking before they answer,
+        # so a role carries its own budget and an optional system prefix.
+        if max_tokens is None:
+            max_tokens = self.role_max_tokens.get(route, 2048)
+        prefix = self.role_system.get(route)
+        if prefix:
+            system = f"{prefix}\n{system}" if system else prefix
         route = self.routes.get(route, route)
         model = None
         if images:
@@ -257,11 +267,15 @@ class Gateway:
                 t0 = time.perf_counter()
                 try:
                     out = provider.chat(messages, route, max_tokens, model)
+                    if not out["text"].strip():
+                        raise GatewayError("empty reply (the token budget went on reasoning?)")
                 except (GatewayError, httpx.HTTPError, KeyError, ValueError) as e:
                     errors.append(f"{provider.name}#{attempt}: {e}")
                     if self.on_call:
                         self.on_call({"action": "model.retry_or_fallback",
                                       "provider": provider.name, "error": str(e)[:200]})
+                    if attempt == 1 and self.retry_backoff_s:
+                        time.sleep(self.retry_backoff_s)
                     continue
                 self.budget.charge(out["tokens_in"] + out["tokens_out"])
                 return GenResult(text=out["text"], route=route, provider=provider.name,
@@ -319,6 +333,19 @@ def routes_from_env(env: dict[str, str]) -> dict[str, str]:
             for role, route in defaults.items()}
 
 
+# Measured on Nightshift's Nemotron lanes (25 Oct): below ~4k tokens the
+# reasoning models return an empty or cut-off answer; /no_think shortens it.
+ROLE_MAX_TOKENS = {"extract": 8000, "reason": 8000}
+ROLE_SYSTEM = {"extract": "/no_think"}
+
+
+def role_settings(env: dict[str, str]) -> tuple[dict[str, str], dict[str, int]]:
+    system = {r: env.get(f"MODEL_SYSTEM_{r.upper()}", v) for r, v in
+              {**ROLE_SYSTEM, "reason": ROLE_SYSTEM.get("reason", "")}.items()}
+    tokens = {r: int(env.get(f"MODEL_MAX_TOKENS_{r.upper()}", v)) for r, v in ROLE_MAX_TOKENS.items()}
+    return {r: v for r, v in system.items() if v}, tokens
+
+
 def gateway_from_env(data_dir: Path, env: dict[str, str] | None = None,
                      on_call=None) -> Gateway:
     env = dict(os.environ if env is None else env)
@@ -330,6 +357,8 @@ def gateway_from_env(data_dir: Path, env: dict[str, str] | None = None,
         record_replay=env.get("RECORD_REPLAY", "false").lower() == "true",
         vision_model=env.get("VISION_MODEL") or None,
         routes=routes_from_env(env),
+        role_system=role_settings(env)[0], role_max_tokens=role_settings(env)[1],
+        retry_backoff_s=float(env.get("MODEL_RETRY_BACKOFF_S", 3)),
         budget=Budget(int(env.get("RUN_MAX_LLM_CALLS", 200)),
                       int(env.get("RUN_MAX_TOKENS", 400_000))),
         on_call=on_call)

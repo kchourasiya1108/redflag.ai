@@ -1,8 +1,9 @@
 """Watchlist: links from anyone involved to SEBI orders before as_of (flag F11).
 
 Uses the shared `watchlist_links`, so the backtest sees exactly what a live
-run sees. Only links a person has reviewed become a flag. Unreviewed links
-and near-name matches become questions, worded neutrally.
+run sees. Only reviewed links (Nemotron's automated review, or a person's)
+become a flag. Unreviewed links and near-name matches become questions,
+worded neutrally.
 """
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ class Watchlist(Agent):
                        else f"led {link.via}, which is named in SEBI order {o['order_id']} "
                             f"({o['order_date']})")
                 why = ("the name is a near match only" if link.status == "near_match"
-                       else "the link awaits human review")
+                       else "the link has not been reviewed yet")
                 case.add_question(f"{link.named.name} ({link.named.role}) appears to be {how}; "
                                   f"{why}. Ask whether this is the same entity.",
                                   agent=self.name, source=ref)
@@ -61,7 +62,7 @@ class Watchlist(Agent):
                           text=f"No party is linked to a SEBI order dated before {ctx.as_of} "
                                "(directly or through a lead manager's earlier issue).")
         else:
-            case.add_not_checked("F11 watchlist", f"{len(links)} possible link(s) await human "
-                                 "review; see the questions", agent=self.name)
+            case.add_not_checked("F11 watchlist", f"{len(links)} possible link(s) not "
+                                 "confirmed by review; see the questions", agent=self.name)
         return AgentResult(f"{len(confirmed)} confirmed, {len(links) - len(confirmed)} unconfirmed "
                            "link(s)", target="Planner")

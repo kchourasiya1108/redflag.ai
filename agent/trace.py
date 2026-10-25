@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +33,7 @@ class Tracer:
         logs_dir.mkdir(parents=True, exist_ok=True)
         self.path = logs_dir / f"trace-{run_id}.jsonl"
         self.events: list[dict] = []
+        self._lock = threading.Lock()        # agents may call the model from threads
 
     def event(self, agent_name: str, action: str, output_summary: str, *,
               input_summary: str = "", target_agent: str | None = None,
@@ -45,8 +47,9 @@ class Tracer:
         if detail:
             record["detail"] = detail
         line = mask(json.dumps(record, default=str))
-        with self.path.open("a") as f:
-            f.write(line + "\n")
-        self.events.append(json.loads(line))
+        with self._lock:
+            with self.path.open("a") as f:
+                f.write(line + "\n")
+            self.events.append(json.loads(line))
         _log.info("run_id=%s %s %s", self.run_id, agent_name, mask(output_summary))
         return record
