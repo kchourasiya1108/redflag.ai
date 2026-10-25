@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from redflag.pipeline import labels, prices, sebi, universe
+from pipeline import labels, prices, sebi, universe
 
 DETAIL = {
     "metaInfo": {"isin": "INE2O2Y01016", "industry": "Gems", "listingDate": "2026-10-12"},
@@ -180,7 +180,7 @@ def test_match_title_needs_whole_words():
 
 
 def test_bse_bonus_inferred_from_price_gap(conn):
-    from redflag.pipeline.bse_prices import infer_corp_actions
+    from pipeline.bse_prices import infer_corp_actions
     conn.execute("INSERT INTO ipos (ipo_id, company, exchange, symbol, status) "
                  "VALUES ('BSE-2023-1', 'A Ltd', 'BSE SME', '543937', 'listed')")
     closes = [355.0, 356.0, 355.3, 177.65, 178.0, 180.0, 179.0, 181.0]

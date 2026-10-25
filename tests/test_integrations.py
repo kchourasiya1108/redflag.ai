@@ -11,13 +11,13 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from redflag.data import zetaris_setup
-from redflag.engines.hmem import HMem
-from redflag.engines.markovian import ChunkConfig, Markovian, split_markers
-from redflag.engines.world import WorldModel
-from redflag.llm.gateway import (BudgetExceeded, Budget, Gateway, MalformedOutput, Provider,
+from pipeline import zetaris_setup
+from agent.engines.hmem import HMem
+from agent.engines.markovian import ChunkConfig, Markovian, split_markers
+from agent.engines.world import WorldModel
+from agent.llm import (BudgetExceeded, Budget, Gateway, MalformedOutput, Provider,
                                  ReplayMiss, parse_structured)
-from redflag.scoring import INSUFFICIENT, score
+from agent.scoring import INSUFFICIENT, score
 
 
 class Row(BaseModel):
@@ -57,7 +57,7 @@ def test_gateway_routes_through_meterless_and_caches(tmp_path):
 
 
 def test_nightshift_is_the_only_provider(tmp_path):
-    from redflag.llm.gateway import GatewayError, providers_from_env
+    from agent.llm import GatewayError, providers_from_env
     env = {"METERLESS_BASE_URL": "http://127.0.0.1:8088/v1", "NVIDIA_API_KEY": "nvapi-x"}
     assert [p.name for p in providers_from_env(env)] == ["meterless"]
     assert providers_from_env({"NVIDIA_API_KEY": "nvapi-x"}) == []
@@ -248,7 +248,7 @@ def test_gateway_sends_images_to_the_vision_model(tmp_path):
 
 
 def test_meterless_contract_url_token_and_scope_header():
-    from redflag.llm.gateway import meterless_token, normalise_base_url, providers_from_env
+    from agent.llm import meterless_token, normalise_base_url, providers_from_env
     for pasted in ("127.0.0.1:8088", "http://127.0.0.1:8088/v1/", "http://127.0.0.1:8088/healthz",
                    "http://127.0.0.1:8088/v1/models", "http://127.0.0.1:8088/v1/chat/completions"):
         assert normalise_base_url(pasted) == "http://127.0.0.1:8088/v1"
@@ -267,7 +267,7 @@ def test_meterless_contract_url_token_and_scope_header():
 
 
 def test_roles_resolve_to_pinned_models_and_reasoning_is_stripped(tmp_path):
-    from redflag.llm.gateway import routes_from_env, strip_reasoning
+    from agent.llm import routes_from_env, strip_reasoning
     assert strip_reasoning("thinking...</think>\n{\"a\": 1}") == '{"a": 1}'
     assert strip_reasoning("<think>x</think>ok") == "ok"
     assert strip_reasoning("plain") == "plain"

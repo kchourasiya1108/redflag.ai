@@ -8,7 +8,17 @@ Design: [docs/DESIGN.md](docs/DESIGN.md).
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env
+.venv/bin/python smoke_test.py --full     # Zetaris + Meterless, every line PASS
 ```
+
+Services (Zetaris and Postgres on the Linux PC, Nightshift on this Mac) are
+set up as in [docs/SETUP.md](docs/SETUP.md).
+
+Layout (the Setup Guide's starter layout): `agent/` is the online agent.
+`agent/llm.py` is the Power layer, `agent/tools_zetaris.py` the Data layer,
+`agent/main.py` the agent loop, and `agent/engines/` the Meterless engines.
+`pipeline/` holds the offline stages, `app/` the FastAPI app, and `prompts/`
+the prompt files.
 
 ## Offline pipeline
 
@@ -70,19 +80,19 @@ its REST API (`ZETARIS_REST_URL`, `ZETARIS_API_KEY`, `ZETARIS_ORG_ID`).
 ```
 
 Agents read data only through named templates in
-[redflag/data/queries.yaml](redflag/data/queries.yaml), via the Data Port and its
+[agent/queries.yaml](agent/queries.yaml), via the Data Port and its
 Leakage Guard. Without Zetaris credentials the same SQL runs on a SQLite stand-in.
 
 ## Meterless (model and agent engines)
 
 - **Nightshift runtime:** every model call goes through one gateway
-  ([redflag/llm/gateway.py](redflag/llm/gateway.py)) to `METERLESS_BASE_URL`, with
+  ([agent/llm.py](agent/llm.py)) to `METERLESS_BASE_URL`, with
   roles pinned to Nemotron models via `MODEL_ROUTE_*` and no direct NVIDIA
   fallback (Nightshift holds the NVIDIA key), a disk cache, recorded replies for sample mode, and a run budget.
 - **Engines** (Python ports of the Meterless reference contracts):
-  [Markovian](redflag/engines/markovian.py) for long RHP sections,
-  [World Model](redflag/engines/world.py) for the shared Case File, and
-  [H-MEM](redflag/engines/hmem.py) for lessons across runs, gated by `as_of`.
+  [Markovian](agent/engines/markovian.py) for long RHP sections,
+  [World Model](agent/engines/world.py) for the shared Case File, and
+  [H-MEM](agent/engines/hmem.py) for lessons across runs, gated by `as_of`.
 
 ## API (FastAPI)
 

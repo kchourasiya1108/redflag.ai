@@ -17,12 +17,12 @@ import argparse
 import sys
 import time
 
-from redflag.common.db import connect
-from redflag.common.http import Fetcher
-from redflag.common.log import StageLog
-from redflag.config import settings
-from redflag.pipeline import STAGES, stage_module
-from redflag.pipeline.base import StageContext
+from pipeline.common.db import connect
+from pipeline.common.http import Fetcher
+from pipeline.common.log import StageLog
+from agent.config import settings
+from pipeline import STAGES, stage_module
+from pipeline.base import StageContext
 
 
 def main(argv: list[str]) -> int:
@@ -35,7 +35,7 @@ def main(argv: list[str]) -> int:
     conn = connect(cfg.archive_db)
 
     if args.stages[0] == "sebi-review":
-        from redflag.pipeline import sebi
+        from pipeline import sebi
         path = cfg.data / "review" / "sebi_entities.csv"
         if args.stages[1:] == ["export"]:
             print(f"wrote {sebi.export_review(conn, path)} rows to {path}")
@@ -47,7 +47,7 @@ def main(argv: list[str]) -> int:
 
     if args.stages[0] == "investigate":
         import json
-        from redflag.service import investigate
+        from agent.main import investigate
         print(json.dumps(investigate(cfg, args.stages[1]), indent=2, default=str))
         return 0
 
@@ -58,8 +58,8 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.stages[0] == "zetaris":
-        from redflag.data import zetaris_setup
-        from redflag.data.clients import MockZetaris, ZetarisRestClient
+        from pipeline import zetaris_setup
+        from agent.tools_zetaris import MockZetaris, ZetarisRestClient
         action = args.stages[1:] or ["render"]
         if action == ["render"]:
             print("\n\n".join(s.masked + ";" for s in zetaris_setup.statements()))
@@ -75,12 +75,12 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.stages[0] == "audit":
-        from redflag.pipeline import audit
+        from pipeline import audit
         print(audit.render(audit.run_audit(conn, cfg)))
         return 0
 
     if args.stages[0] == "explain-label":
-        from redflag.pipeline import labels
+        from pipeline import labels
         print("\n".join(labels.explain(conn, i) for i in args.stages[1:]))
         return 0
 

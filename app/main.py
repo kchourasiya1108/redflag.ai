@@ -15,9 +15,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from redflag.config import settings
-from redflag.data.port import LeakageError, TruncatedResult
-from redflag.service import RunError, investigate
+from agent.config import settings
+from agent.tools_zetaris import LeakageError, TruncatedResult
+from agent.main import RunError, investigate
 
 app = FastAPI(title="RedFlag", version="0.1.0",
               description="Evidence-backed risk ratings for Indian SME IPOs")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from redflag.pipeline.offer_docs import extract, firms
+from pipeline.offer_docs import extract, firms
 
 STACKED = """LISTING
 The Equity Shares are proposed to be listed on the SME Platform of BSE Limited.
@@ -58,7 +58,7 @@ def test_firms_skips_banks_and_the_company_itself():
 
 
 def test_bse_scrip_match_uses_listing_window_and_name():
-    from redflag.pipeline.bse_universe import match_scrip
+    from pipeline.bse_universe import match_scrip
     ipo = {"company": "Icon Facilitators Limited", "close_date": "2025-06-26"}
     scrips = [
         {"symbol": "544420", "name": "ICON FACILITATORS LTD", "names": ["ICON FACILITATORS LTD"],
@@ -75,7 +75,7 @@ def test_bse_scrip_match_uses_listing_window_and_name():
 
 
 def test_bse_row_marks_price_basis():
-    from redflag.pipeline.bse_universe import build_row
+    from pipeline.bse_universe import build_row
     ipo = {"open_date": "2025-06-24", "close_date": "2025-06-26", "company": "Icon Facilitators Limited",
            "issue_type": "Book Building", "price_low": 85.0, "price_high": 91.0, "face_value": 10.0,
            "offer_doc_url": "https://www.bsesme.com/download/1/x.pdf", "bse_ipo_id": "BSE-2025-ICON"}
@@ -89,7 +89,7 @@ def test_bse_row_marks_price_basis():
 
 
 def test_follow_on_offer_is_detected():
-    from redflag.pipeline.bse_universe import prior_listing
+    from pipeline.bse_universe import prior_listing
     scrips = [{"symbol": "543920", "name": "CFF FLUID CONTROL LIMITED", "isin": None,
                "first_date": "2023-06-12"}]
     assert prior_listing({"company": "CFF FLUID CONTROL LIMITED", "open_date": "2025-07-09"},
@@ -99,7 +99,7 @@ def test_follow_on_offer_is_detected():
 
 
 def test_bse_match_handles_abbreviations_renames_and_late_listings():
-    from redflag.pipeline.bse_universe import match_scrip
+    from pipeline.bse_universe import match_scrip
     meson = [{"symbol": "543982", "name": "MESON", "names": ["MESON"], "isin": None,
               "first_date": "2023-09-26"}]
     assert match_scrip({"company": "MESON VALVES INDIA LIMITED", "close_date": "2023-09-12"},
@@ -116,12 +116,12 @@ def test_bse_match_handles_abbreviations_renames_and_late_listings():
 
 
 def test_fixed_price_read_from_cover():
-    from redflag.pipeline.offer_docs import issue_price
+    from pipeline.offer_docs import issue_price
     assert issue_price("Issue of 10,00,000 Equity Shares at a price of ₹ 40/- per Equity Share") == 40.0
 
 
 def test_cin_and_nic_section():
-    from redflag.pipeline.offer_docs import cin, nic_section
+    from pipeline.offer_docs import cin, nic_section
     c = cin(["ICON FACILITATORS LIMITED\nCorporate Identification Number: U93000DL2013PLC258273"])
     assert c == "U93000DL2013PLC258273"
     assert nic_section(c) == ("93000", "R Arts, entertainment and recreation")
@@ -129,20 +129,20 @@ def test_cin_and_nic_section():
 
 
 def test_lot_size_from_document_text():
-    from redflag.pipeline.offer_docs import lot_size
+    from pipeline.offer_docs import lot_size
     assert lot_size(["The Market lot and Trading lot for the Equity Share is 1,000 and in multiples"]) == 1000
     assert lot_size(["Bid Lot 1200 Equity Shares and in multiples of 1200 Equity Shares thereafter"]) == 1200
     assert lot_size(["Bid Lot [●] Equity Shares and in multiples of [●] Equity Shares"]) is None
 
 
 def test_registrar_with_bracketed_word():
-    from redflag.pipeline.offer_docs import firms
+    from pipeline.offer_docs import firms
     assert firms("REGISTRAR Purva Sharegistry (India) Private Limited Tel: 022") == \
         ["Purva Sharegistry (India) Private Limited"]
 
 
 def test_pick_lead_managers_dedupes_and_prefers_registered():
-    from redflag.pipeline.bse_universe import pick_lead_managers
+    from pipeline.bse_universe import pick_lead_managers
     register = {"SHRENI SHARES LIMITED": "INM1", "GYR CAPITAL ADVISORS PRIVATE LIMITED": "INM2",
                 "HEM SECURITIES LIMITED": "INM3", "SHARE INDIA CAPITAL SERVICES PVT LTD": "INM4"}
     assert pick_lead_managers(["SHRENI SHARES LIMITED", "Shreni Shares Private Limited"],
@@ -156,12 +156,12 @@ def test_pick_lead_managers_dedupes_and_prefers_registered():
 
 
 def test_fused_private_limited_normalises():
-    from redflag.common.names import normalise
+    from pipeline.common.names import normalise
     assert normalise("Link Intime India PrivateLimited") == normalise("Link Intime India Private Limited")
 
 
 def test_auditor_name_frn_and_change():
-    from redflag.pipeline.offer_docs import auditor
+    from pipeline.offer_docs import auditor
     page = ("GENERAL INFORMATION\nStatutory and Peer Review Auditor\nM/s. PIYUSH KOTHARI & ASSOCIATES\n"
             "Chartered Accountants\nAddress: 208, Hemkoot Building, Ahmedabad\n"
             "Firm Registration No.: 140711W\nPeer Review Certificate No.: 016589\n"
@@ -173,7 +173,7 @@ def test_auditor_name_frn_and_change():
 
 
 def test_auditor_change_detected_from_two_firms():
-    from redflag.pipeline.offer_docs import auditor
+    from pipeline.offer_docs import auditor
     page = ("Statutory Auditor\nM/s. Dokania S. Kumar & Co, Chartered Accountants\n"
             "Change in Auditors during the last three (3) years\nName of the Auditor "
             "R.T Yadava & Co, Chartered Accountants M/s. Dokania S. Kumar & Co, Chartered Accountants\n")
@@ -182,7 +182,7 @@ def test_auditor_change_detected_from_two_firms():
 
 
 def test_resolver_containment_and_manual_alias(ctx):
-    from redflag.pipeline.universe import Resolver
+    from pipeline.universe import Resolver
     register = {"BIGSHARE SERVICES PVT. LTD.": "INR000001385",
                 "PURVA SHAREGISTRY (INDIA)  P LTD (BUSICOMP SOFTWARE CONSULTANTS": "INR000001112",
                 "MUFG INTIME INDIA PRIVATE LIMITED": "INR000004058"}
@@ -208,7 +208,7 @@ def test_resolver_containment_and_manual_alias(ctx):
      "certificate in our case being M/s. Rajendra Prasad, Chartered Accountants", "Rajendra Prasad", None),
 ])
 def test_auditor_name_variants(page, name, frn):
-    from redflag.pipeline.offer_docs import auditor
+    from pipeline.offer_docs import auditor
     got = auditor([page])
     assert (got["name"], got["frn"]) == (name, frn)
 
@@ -220,5 +220,5 @@ def test_auditor_name_variants(page, name, frn):
      "Reviewed Chartered Accountant, M/s. A Y & Co., Chartered Accountants (having Peer Review)", "A Y & Co"),
 ])
 def test_auditor_and_connector_and_descriptive_words(page, name):
-    from redflag.pipeline.offer_docs import auditor
+    from pipeline.offer_docs import auditor
     assert auditor([page])["name"] == name

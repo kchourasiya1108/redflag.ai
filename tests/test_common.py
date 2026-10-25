@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from redflag.common import names
-from redflag.common.db import upsert
-from redflag.common.http import Fetcher, FetchError
+from pipeline.common import names
+from pipeline.common.db import upsert
+from pipeline.common.http import Fetcher, FetchError
 
 
 def test_normalise_unifies_legal_suffixes():
@@ -85,7 +85,7 @@ def test_fetcher_retries_then_raises(tmp_path, monkeypatch):
 
 
 def test_dotenv_strips_trailing_comments_but_keeps_quoted_and_inline_hashes(tmp_path, monkeypatch):
-    from redflag.config import load_dotenv
+    from agent.config import load_dotenv
     env = tmp_path / ".env"
     env.write_text("\n".join([
         "# a comment line",

@@ -4,11 +4,11 @@ from datetime import date
 
 import pytest
 
-from redflag.common.db import connect
-from redflag.common.http import Fetcher
-from redflag.common.log import StageLog
-from redflag.config import Settings
-from redflag.pipeline.base import StageContext
+from pipeline.common.db import connect
+from pipeline.common.http import Fetcher
+from pipeline.common.log import StageLog
+from agent.config import Settings
+from pipeline.base import StageContext
 
 
 @pytest.fixture

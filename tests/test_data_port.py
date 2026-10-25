@@ -7,10 +7,9 @@ from datetime import date
 import httpx
 import pytest
 
-from redflag.data.clients import MockZetaris, ZetarisRestClient
-from redflag.data.port import (DataPort, LeakageError, TruncatedResult, bind,
-                               load_catalogue)
-from redflag.features import adverse_as_of, compute_features
+from agent.tools_zetaris import (DataPort, LeakageError, MockZetaris, TruncatedResult,
+                                 ZetarisError, ZetarisRestClient, bind, load_catalogue)
+from agent.features import adverse_as_of, compute_features
 
 AS_OF = date(2025, 3, 10)
 
@@ -136,3 +135,18 @@ def test_rest_client_types_string_values_and_sends_fresh_query_ids():
                      "sebi_action_date": None, "outcome_known_on": date(2025, 1, 5)}]
     DataPort(client, AS_OF).run("outcomes_known_before", as_of=AS_OF)
     assert len(set(seen)) == 2
+
+
+@pytest.mark.parametrize("status, calls", [(400, 1), (401, 1), (429, 2), (503, 2)])
+def test_rest_client_retries_only_transient_errors(status, calls):
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content)["queryId"])
+        return httpx.Response(status, text="nope")
+
+    client = ZetarisRestClient("http://z.test/api/v1.0", "k", "1", retries=1,
+                               transport=httpx.MockTransport(handler))
+    with pytest.raises(ZetarisError, match=f"HTTP {status}"):
+        client.query("SELECT 1", 1)
+    assert len(seen) == calls and len(set(seen)) == calls
