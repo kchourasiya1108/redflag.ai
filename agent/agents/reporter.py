@@ -55,17 +55,23 @@ _BANNED = re.compile(r"(?i)\b(fraud\w*|scam\w*|cheat\w*|buy|sell|avoid|invest\s+
 def plain_summary(gateway, out: dict) -> str | None:
     """Nemotron's plain-language summary, accepted only if every number in it is in
     the evidence and it gives no advice or accusation; otherwise None."""
-    evidence = json.dumps({k: out[k] for k in ("rating", "p_adverse", "reasons",
-                                               "skeptic_notes", "cleared_checks", "questions",
-                                               "not_checked")}, default=str)
+    # A compact block: long prompts fail on Nightshift's extract lane ("Load
+    # failed", measured 26 Oct); numbers are still checked against the full output.
+    evidence = json.dumps({
+        "rating": out["rating"],
+        "reasons": [f"{r.get('flag', '')} {r.get('severity', '')}: {r.get('text', '')}"
+                    for r in out["reasons"]],
+        "skeptic": [f"{s.get('flag', '')} {s.get('ruling', '')}" for s in out["skeptic_notes"]],
+        "passed": [f"{c.get('flag', '')}: {c.get('text', '')}" for c in out["cleared_checks"]][:4],
+        "questions": len(out["questions"])}, default=str)[:3000]
     prompt = ("Write a plain-language summary (at most 120 words) of this IPO risk report for "
               "a retail investor. Use only facts and numbers that appear below. Neutral wording: "
               "say an entity was 'named in an order', never that anyone did wrong. Do not tell "
-              "the reader to apply, avoid, buy or sell.\n\n" + evidence[:9000]
+              "the reader to apply, avoid, buy or sell.\n\n" + evidence
               + '\n\nReply with JSON: {"summary": "..."}')
     try:
         text = gateway.generate(prompt, "You explain risk reports clearly and neutrally.",
-                                schema=Summary, route="reason", purpose="reporter:summary"
+                                schema=Summary, route="extract", purpose="reporter:summary"
                                 ).parsed.summary.strip()
     except Exception:
         return None
@@ -124,7 +130,8 @@ class Reporter(Agent):
 
     def run(self, ctx: RunContext) -> AgentResult:
         out = build_output(ctx)
-        out["summary"] = plain_summary(ctx.gateway, out) if ctx.gateway is not None else None
+        out["summary"] = (plain_summary(ctx.gateway, out)
+                          if ctx.gateway is not None and ctx.seconds_left() > 90 else None)
         self._remember(ctx, out)
         folder = ctx.cfg.data.parent / "output" / ctx.run_id
         folder.mkdir(parents=True, exist_ok=True)

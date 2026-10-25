@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from agent.agents.base import Agent, AgentResult, RunContext
 from agent.agents.planner import FORENSIC, LIGHT
 
+MAX_RULINGS = 4
+
 KEYWORDS = {
     "F1": r"order\s+book|credit\s+period|receivable|collection|working\s+capital\s+cycle",
     "F2": r"order\s+book|new\s+(?:contract|customer|order)|capacity\s+(?:expansion|utili)|"
@@ -51,39 +53,27 @@ class Skeptic(Agent):
     uses_llm = True
 
     def run(self, ctx: RunContext) -> AgentResult:
-        flags = [f for f in ctx.case.flags() if f["severity"] in ("HIGH", "ELEVATED")]
+        # RHP-based flags first (an innocent explanation can only be in the RHP),
+        # HIGH before ELEVATED; archive-based F10/F11 last.
+        flags = sorted((f for f in ctx.case.flags() if f["severity"] in ("HIGH", "ELEVATED")),
+                       key=lambda f: (f["id"] in ("F10", "F11"), f["severity"] != "HIGH",
+                                      -f["confidence"]))
         depth = ctx.case.meta.get("depth")
-        if depth == LIGHT and flags:
-            flags = sorted(flags, key=lambda f: (f["severity"] != "HIGH", -f["confidence"]))[:1]
-        rulings = []
+        flags = flags[:1] if depth == LIGHT else flags[:MAX_RULINGS]
         pages = ctx.scratch.get("pages") or []
-        for flag in flags:
-            if ctx.gateway is None or ctx.seconds_left() < 90:
-                break
-            pick = candidate_pages(pages, flag["id"], 4 if depth == FORENSIC else 3)
-            excerpt = "\n\n".join(f"[page {p}]\n{pages[p - 1][:2200]}" for p in pick)
-            context = ctx.case.context(f"skeptic:{flag['id']}", mentions=[flag["id"]],
-                                       budget_chars=2500).as_prompt_block()
-            if ctx.memory is not None:          # earlier rulings on the same kind of flag
-                context += "\n" + ctx.memory.context_block(ctx.memory.retrieve(
-                    f"skeptic {flag['id']} {flag['text']}", as_of=ctx.as_of,
-                    tags=["skeptic", flag["id"]]))
-            prompt = (f"Red flag {flag['id']} ({flag['severity']}): {flag['text']}\n"
-                      f"Numbers: {flag['value']}\n\n{context}\n\nRHP pages that may explain it:\n"
-                      f"{excerpt or '(none found)'}\n\nArgue the innocent side. Is there a "
-                      "disclosed, ordinary explanation (e.g. an order book, a capex plan, a "
-                      "one-off)? Rule 'dismissed' only if the explanation fully accounts for "
-                      "it, 'downgraded' if it partly does, else 'upheld'. Cite only the pages "
-                      "shown, as rhp:p<N>. Reply with JSON: ruling, reason, evidence.")
-            try:
-                res = ctx.gateway.generate(prompt, "You are the Skeptic on an IPO risk team. "
-                                           "Be fair to the company and exact about evidence.",
-                                           schema=Ruling, route="reason",
-                                           purpose=f"skeptic:{flag['id']}")
-                ruling = res.parsed
-            except Exception as e:      # the model is down: the flag stands as computed
+        if ctx.gateway is not None and ctx.seconds_left() >= 150:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                asked = list(pool.map(lambda f: (f, self.ask(ctx, f, pages, depth)), flags))
+        else:
+            asked = []
+        rulings = []
+        for flag, (ruling, pick) in asked:
+            if isinstance(ruling, Exception):
                 ctx.case.add_not_checked(f"Skeptic on {flag['id']}", f"model unavailable: "
-                                         f"{type(e).__name__}", agent=self.name)
+                                         f"{type(ruling).__name__}", agent=self.name)
+                continue
+            if ruling is None:
                 continue
             shown = {f"rhp:p{p}" for p in pick}
             evidence = [e for e in ruling.evidence if e in shown]
@@ -98,6 +88,35 @@ class Skeptic(Agent):
         held = self.corroborate(ctx)
         return AgentResult(f"rulings {', '.join(rulings) or 'none'}"
                            + (f"; HIGH kept by corroboration: {held}" if held else ""))
+
+    def ask(self, ctx: RunContext, flag: dict, pages: list[str], depth: str):
+        """One cited ruling from Nemotron, (None, pages) when there is no time, or the
+        exception when the model failed. Runs on a worker thread: reads only."""
+        pick = candidate_pages(pages, flag["id"], 4 if depth == FORENSIC else 3)
+        if ctx.seconds_left() < 120:
+            return None, pick
+        excerpt = "\n\n".join(f"[page {p}]\n{pages[p - 1][:2200]}" for p in pick)
+        context = ctx.case.context(f"skeptic:{flag['id']}", mentions=[flag["id"]],
+                                   budget_chars=2500).as_prompt_block()
+        if ctx.memory is not None:          # earlier rulings on the same kind of flag
+            context += "\n" + ctx.memory.context_block(ctx.memory.retrieve(
+                f"skeptic {flag['id']} {flag['text']}", as_of=ctx.as_of,
+                tags=["skeptic", flag["id"]]))
+        prompt = (f"Red flag {flag['id']} ({flag['severity']}): {flag['text']}\n"
+                  f"Numbers: {flag['value']}\n\n{context}\n\nRHP pages that may explain it:\n"
+                  f"{excerpt or '(none found)'}\n\nArgue the innocent side. Is there a "
+                  "disclosed, ordinary explanation (e.g. an order book, a capex plan, a "
+                  "one-off)? Rule 'dismissed' only if the explanation fully accounts for "
+                  "it, 'downgraded' if it partly does, else 'upheld'. Cite only the pages "
+                  "shown, as rhp:p<N>. Reply with JSON: ruling, reason, evidence.")
+        try:
+            res = ctx.gateway.generate(prompt, "You are the Skeptic on an IPO risk team. "
+                                       "Be fair to the company and exact about evidence.",
+                                       schema=Ruling, route="reason",
+                                       purpose=f"skeptic:{flag['id']}")
+        except Exception as e:      # the model is down: the flag stands as computed
+            return e, pick          # recorded by the main thread (the Case File is not shared)
+        return res.parsed, pick
 
     def corroborate(self, ctx: RunContext) -> list[str]:
         """A HIGH flag needs a second, independent ELEVATED/HIGH signal to stay HIGH."""

@@ -193,7 +193,9 @@ def f4_insider_discount(summary: dict) -> Finding | None:
     """IPO price over what insiders paid in the 18 months before the bid (narrative.py)."""
     disc = summary.get("insider_discount")
     if disc is None and not summary.get("bonus_in_window"):
-        return None
+        return Finding("F4", "LOW", summary, f"No shares were allotted for cash in the 18 "
+                       f"months before the bid (since {summary['window_start']}).",
+                       summary.get("pages", []))
     sev = ("HIGH" if disc is not None and disc >= 5 else
            "ELEVATED" if (disc is not None and disc >= 3) or summary.get("bonus_in_window")
            else "LOW")
@@ -207,6 +209,29 @@ def f4_insider_discount(summary: dict) -> Finding | None:
     return Finding("F4", sev, summary, "; ".join(parts) + ".", summary.get("pages", []))
 
 
+def f6_related_parties(summary: dict) -> Finding | None:
+    share = summary.get("share")
+    if share is None:
+        return None
+    sev = "HIGH" if share >= 0.4 else "ELEVATED" if share >= 0.2 else "LOW"
+    return Finding("F6", sev, summary,
+                   f"{summary['fiscal_year']}: sales to and purchases from related parties of "
+                   f"₹{summary['rpt_cr']:.2f} cr, {share:.0%} of revenue of "
+                   f"₹{summary['revenue_cr']:.2f} cr.", summary.get("pages", []))
+
+
+def f8_overvalued(summary: dict) -> Finding | None:
+    premium = summary.get("premium")
+    if premium is None:
+        return None
+    sev = "HIGH" if premium > 2.5 else "ELEVATED" if premium > 1.5 else "LOW"
+    names = ", ".join(p["name"] for p in summary["peers"][:4])
+    return Finding("F8", sev, summary,
+                   f"Issue P/E {summary['issue_pe']:.1f} against a median of "
+                   f"{summary['peer_median_pe']:.1f} for the listed peers the RHP names "
+                   f"({names}): {premium:.1f}x.", summary.get("pages", []))
+
+
 def f9_use_of_money(summary: dict, pages: list[int]) -> Finding | None:
     gross, gcp, cap, wc_share = (summary.get(k) for k in ("gross_cr", "gcp_cr", "gcp_cap_cr",
                                                            "wc_share"))
@@ -218,5 +243,6 @@ def f9_use_of_money(summary: dict, pages: list[int]) -> Finding | None:
     text = (f"Of ₹{gross:.2f} cr of proceeds, general corporate purposes take "
             + (f"₹{gcp:.2f} cr against a cap of ₹{cap:.2f} cr" if gcp is not None else "nothing stated")
             + (f", and working capital {wc_share:.0%}" if wc_share is not None else "")
-            + (". The GCP amount is above the cap the rules allow." if over else "."))
+            + (". The GCP amount is above the cap the rules allowed at the bid date." if over
+               else "."))
     return Finding("F9", sev, summary, text, pages)

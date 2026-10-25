@@ -21,7 +21,13 @@ from agent.engines.markovian import ChunkConfig, Markovian, MarkovianRun
 from agent.rhp import UNIT_TO_CRORE, _NUMBER
 
 INSIDER_WINDOW_DAYS = 548           # "recent" allotments: the 18 months before as_of
-GCP_CAP_SHARE, GCP_CAP_CR = 0.15, 10.0
+# General corporate purposes cap: 25% of gross proceeds under the earlier ICDR
+# rules; min(15%, Rs 10 cr) under SEBI's SME amendment effective 3 Mar 2025.
+SME_RULES_2025 = date(2025, 3, 3)
+
+
+def gcp_cap(gross_cr: float, as_of: date) -> float:
+    return min(0.15 * gross_cr, 10.0) if as_of >= SME_RULES_2025 else 0.25 * gross_cr
 
 
 @dataclass
@@ -54,6 +60,23 @@ SECTIONS = {
         '"other", "amount": number as printed, "page": N}], "gross_proceeds": the total '
         'fresh issue proceeds as printed or null, "net_proceeds": as printed or null} for this '
         "part only."),
+    "basis": Section(
+        "basis", r"basis\s+for\s+(?:the\s+)?(?:issue|offer)\s+price",
+        r"(?i)peer[^\n]{0,80}(?:comparison|accounting\s+ratios|competitors)|comparison\s+with[^\n]"
+        r"{0,30}peers|industry\s+peers",
+        "Extract the comparison with listed peers in the basis for the issue price. Return "
+        '{"issue_pe": the P/E ratio of the issuing company at the issue price as printed (or '
+        'null), "issue_eps": its EPS as printed (or null), "peers": [{"name": peer company, '
+        '"cmp": its price as printed, "eps": as printed, "pe": as printed, "page": N}]} for '
+        "this part only. Do not include the issuing company in peers.", max_pages=3),
+    "rpt": Section(
+        "rpt", r"related\s+party\s+transactions",
+        r"(?i)related\s+party\s+transactions[\s\S]{0,600}?nature\s+of\s+(?:transaction|relationship)",
+        "Extract the related party transactions table. Return {\"unit\": \"lakh\" | \"crore\" | "
+        '"million" | "rupee" as printed, "rows": [{"party": name, "relationship": as printed, '
+        '"nature": "sale" | "purchase" | "rent" | "remuneration" | "loan_given" | "loan_taken" | '
+        '"guarantee" | "other", "fiscal_year": the year-end of the column as YYYY-MM-DD, '
+        '"amount": number as printed, "page": N}]} for this part only.', max_pages=3),
 }
 
 
@@ -167,8 +190,77 @@ def insider_discount(rows: list[dict], issue_price: float, as_of: date) -> dict:
     return out
 
 
-def objects_summary(data: dict) -> dict:
-    """GCP and working capital as shares of the fresh issue, in crore."""
+def _median(values: list[float]) -> float | None:
+    values = sorted(values)
+    if not values:
+        return None
+    mid = len(values) // 2
+    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
+
+
+def peer_valuation(data: dict, company: str = "") -> dict:
+    """Issue P/E over the median P/E of the listed peers the RHP itself chose (F8)."""
+    own = set(re.findall(r"[a-z]{4,}", company.lower())) - {"limited", "private", "india"}
+    peers = []
+    for p in data.get("peers", []):
+        name = str(p.get("name", ""))
+        if own and own & set(re.findall(r"[a-z]{4,}", name.lower())):
+            continue                    # the issuer's own row in the table
+        pe = _num(p.get("pe"))
+        if pe and pe > 0:
+            peers.append({"name": name, "pe": pe, "page": _num(p.get("page"))})
+    own_pe = [_num(p.get("pe")) for p in data.get("peers", [])
+              if own and own & set(re.findall(r"[a-z]{4,}", str(p.get("name", "")).lower()))]
+    issue_pe = _num(data.get("issue_pe")) or next((x for x in own_pe if x), None)
+    med = _median([p["pe"] for p in peers])
+    return {"issue_pe": issue_pe, "peer_median_pe": med, "peers": peers,
+            "premium": issue_pe / med if issue_pe and med else None,
+            "pages": sorted({int(p["page"]) for p in peers if p["page"]})}
+
+
+def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:
+    """Related-party sales and purchases as a share of revenue, latest year (F6)."""
+    factor = UNIT_TO_CRORE.get(str(data.get("unit", "")).lower().rstrip("s").replace("lac", "lakh"))
+    if factor is None:
+        return {"error": "unit not stated"}
+    by_fy: dict[str, float] = {}
+    pages = set()
+    for r in data.get("rows", []):
+        if r.get("nature") not in ("sale", "purchase"):
+            continue
+        d, amount = _date(r.get("fiscal_year")), _num(r.get("amount"))
+        if d is None or amount is None:
+            continue
+        fy = f"FY{d.year % 100:02d}" if (d.month, d.day) == (3, 31) else f"S{d.isoformat()}"
+        by_fy[fy] = by_fy.get(fy, 0.0) + abs(amount) * factor
+        if _num(r.get("page")):
+            pages.add(int(_num(r.get("page"))))
+    years = sorted((fy for fy in by_fy if fy in revenue_by_fy and revenue_by_fy[fy]), reverse=True)
+    if not years:
+        return {"by_fy_cr": by_fy, "error": "no year with both RPT and revenue"}
+    fy = years[0]
+    return {"fiscal_year": fy, "rpt_cr": round(by_fy[fy], 4), "revenue_cr": revenue_by_fy[fy],
+            "share": by_fy[fy] / revenue_by_fy[fy], "pages": sorted(pages)}
+
+
+_GROSS = re.compile(r"(?i)gross\s+proceeds[^\n]{0,80}?(\d[\d,]*\.\d{2})\b")
+
+
+def printed_gross(pages: list[str], window: list[int]) -> float | None:
+    """Gross proceeds as printed on the objects pages, in crore (read in code)."""
+    from agent.rhp import find_unit
+    # The section's own pages first, then the whole RHP (the line is often on
+    # the objects page, after the issue summary where the section was found).
+    for p in list(window) + [i for i in range(1, len(pages) + 1) if i not in window]:
+        text = pages[p - 1]
+        m, unit = _GROSS.search(text), find_unit(text)
+        if m and unit:
+            return float(m.group(1).replace(",", "")) * UNIT_TO_CRORE[unit]
+    return None
+
+
+def objects_summary(data: dict, as_of: date | None = None, gross_cr: float | None = None) -> dict:
+    """GCP and working capital as shares of the gross proceeds, in crore."""
     factor = UNIT_TO_CRORE.get(str(data.get("unit", "")).lower().rstrip("s").replace("lac", "lakh"))
     if factor is None:
         return {"error": "unit not stated"}
@@ -181,10 +273,15 @@ def objects_summary(data: dict) -> dict:
         amount = _num(r.get("amount"))
         if amount is not None:
             by_kind[r.get("kind", "other")] = by_kind.get(r.get("kind", "other"), 0.0) + amount * factor
-    gross = _num(data.get("gross_proceeds"))
-    gross = gross * factor if gross else sum(by_kind.values()) or None
+    stated = _num(data.get("gross_proceeds"))
+    uses = sum(by_kind.values()) or None
+    # The RHP's own "Gross Proceeds" line (read in code) wins; a total smaller
+    # than the uses it funds cannot be right.
+    gross = gross_cr or (stated * factor if stated else None)
+    if gross is None or (uses and gross < uses * 0.99):
+        gross = uses
     gcp, wc = by_kind.get("gcp"), by_kind.get("working_capital")
-    cap = min(GCP_CAP_SHARE * gross, GCP_CAP_CR) if gross else None
+    cap = gcp_cap(gross, as_of or date.today()) if gross else None
     return {"gross_cr": gross, "gcp_cr": gcp, "working_capital_cr": wc,
             "gcp_share": gcp / gross if gcp is not None and gross else None,
             "gcp_cap_cr": cap, "wc_share": wc / gross if wc is not None and gross else None,

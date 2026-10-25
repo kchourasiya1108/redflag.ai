@@ -178,3 +178,16 @@ def test_unreachable_zetaris_is_a_recoverable_error(sample_cfg, monkeypatch):
     with pytest.raises(RunError) as err:
         investigate(sample_cfg, DEMO, sample_mode=False)
     assert err.value.type == "DataSourceUnavailable" and err.value.recoverable
+
+
+def test_model_calls_are_traced_with_the_served_model(sample_cfg, tmp_path):
+    from agent.main import model_gateway
+    from agent.trace import Tracer
+    tracer = Tracer("t", tmp_path)
+    gw = model_gateway(sample_cfg, True, tracer)
+    gw.on_call({"action": "model.call", "purpose": "p", "route": "r", "provider": "meterless",
+                "served_model": "nvidia/nemotron-x", "tokens_in": 1, "tokens_out": 2,
+                "cached": False, "replayed": True, "latency_ms": 1.0, "attempts": 1})
+    gw.on_call({"action": "model.retry_or_fallback", "provider": "meterless", "error": "502"})
+    assert [e["action"] for e in tracer.events] == ["model.call", "model.retry_or_fallback"]
+    assert tracer.events[0]["detail"]["served_model"] == "nvidia/nemotron-x"

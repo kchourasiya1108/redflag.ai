@@ -145,7 +145,7 @@ def test_rest_client_retries_only_transient_errors(status, calls):
         seen.append(json.loads(request.content)["queryId"])
         return httpx.Response(status, text="nope")
 
-    client = ZetarisRestClient("http://z.test/api/v1.0", "k", "1", retries=1,
+    client = ZetarisRestClient("http://z.test/api/v1.0", "k", "1", retries=1, backoff_s=0,
                                transport=httpx.MockTransport(handler))
     with pytest.raises(ZetarisError, match=f"HTTP {status}"):
         client.query("SELECT 1", 1)

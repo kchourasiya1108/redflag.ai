@@ -67,19 +67,22 @@ class ZetarisRestClient:
     name = "zetaris-rest"
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None,
-                 org_id: str | None = None, timeout_s: float = 20.0, retries: int = 1,
-                 transport: httpx.BaseTransport | None = None):
+                 org_id: str | None = None, timeout_s: float = 20.0, retries: int = 3,
+                 backoff_s: float = 5.0, transport: httpx.BaseTransport | None = None):
         self.base = (base_url or os.environ.get("ZETARIS_REST_URL", "")).rstrip("/")
         self._key = api_key or os.environ.get("ZETARIS_API_KEY")
         self.org = org_id or os.environ.get("ZETARIS_ORG_ID", "")
         if not self.base or not self._key:
             raise ZetarisError("ZETARIS_REST_URL and ZETARIS_API_KEY must be set")
         self.retries = retries
+        self.backoff_s = backoff_s          # doubles per retry: rides out a short LAN drop
         self._http = httpx.Client(timeout=timeout_s, transport=transport)
 
     def query(self, sql: str, limit: int) -> tuple[list[str], list[list[Any]], float]:
         last: Exception | None = None
-        for _ in range(self.retries + 1):
+        for attempt in range(self.retries + 1):
+            if attempt and self.backoff_s:
+                time.sleep(self.backoff_s * 2 ** (attempt - 1))
             # A fresh queryId per attempt: Zetaris rejects a reused one.
             body = {"queryId": str(uuid.uuid4()), "sql": sql, "source": "SqlEditor",
                     "limit": limit}

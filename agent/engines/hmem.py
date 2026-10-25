@@ -17,6 +17,7 @@ import json
 import math
 import re
 import sqlite3
+import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -76,13 +77,19 @@ class HMem:
         self.enabled = enabled
         self.on_event = on_event
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path)
+        # Agents may read memory from worker threads; one lock serialises access.
+        self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
         self._db.executescript(SCHEMA)
 
     # -- MemoryStoreService --------------------------------------------------
 
-    def add(self, content: str, *, as_of: date, type: str = "procedural",
+    def add(self, *args, **kwargs):
+        with self._lock:
+            return self._add(*args, **kwargs)
+
+    def _add(self, content: str, *, as_of: date, type: str = "procedural",
             layer: str = "working", tags: list[str] | None = None,
             entities: list[str] | None = None, domain: str = "", confidence: float = 0.7,
             source: str = "", agent_id: str = "", run_id: str = "",
@@ -109,13 +116,21 @@ class HMem:
         self._emit("hmem.add", id=m.id, layer=layer, tags=m.tags, as_of=m.as_of)
         return m
 
-    def get(self, memory_id: str) -> Memory | None:
+    def get(self, *args, **kwargs):
+        with self._lock:
+            return self._get(*args, **kwargs)
+
+    def _get(self, memory_id: str) -> Memory | None:
         r = self._db.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
         return self._row(r) if r else None
 
     # -- MemoryRetrievalService -----------------------------------------------
 
-    def retrieve(self, query: str, *, as_of: date, tags: list[str] | None = None,
+    def retrieve(self, *args, **kwargs):
+        with self._lock:
+            return self._retrieve(*args, **kwargs)
+
+    def _retrieve(self, query: str, *, as_of: date, tags: list[str] | None = None,
                  entities: list[str] | None = None, top_n: int = 5,
                  threshold: float = 0.15) -> list[Retrieved]:
         """Hybrid ranking over memories written by runs with an earlier as_of."""

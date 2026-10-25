@@ -68,7 +68,7 @@ def model_gateway(cfg: Settings, sample_mode: bool, tracer: Tracer):
                          f"{e['purpose']}: {e['served_model'] or e['route']} "
                          f"({e['tokens_in']}+{e['tokens_out']} tokens"
                          + (", cached" if e["cached"] else ", replayed" if e["replayed"] else "")
-                         + ")", **e)
+                         + ")", **{k: v for k, v in e.items() if k != "action"})
         else:
             tracer.event("ModelGateway", e["action"], e.get("error", "")[:160], status="retry",
                          **{k: v for k, v in e.items() if k != "action"})

@@ -56,9 +56,14 @@ def main(argv: list[str]) -> int:
 
     if args.stages[0] == "investigate":
         import json
-        from agent.main import investigate
-        print(json.dumps(investigate(cfg, args.stages[1], sample_mode=True if args.sample else None),
-                         indent=2, default=str))
+        from agent.main import RunError, investigate
+        try:
+            out = investigate(cfg, args.stages[1], sample_mode=True if args.sample else None)
+        except RunError as e:           # the same structured error POST /run returns
+            print(json.dumps({"status": "error", "error": {
+                "type": e.type, "message": str(e), "recoverable": e.recoverable}}, indent=2))
+            return 1
+        print(json.dumps(out, indent=2, default=str))
         return 0
 
     if args.stages[0] == "serve":

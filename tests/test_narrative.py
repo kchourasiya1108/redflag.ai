@@ -74,3 +74,51 @@ def test_review_fixes_missing_price_total_rows_and_braces():
     assert objects_summary(data)["gross_cr"] == 7.0
     reply = 'I see {unit} in lakh here... {"rows": [{"date": "2024-01-01"}]}\n[STATE_CHECKPOINT]'
     assert _rows_from(reply)["rows"] == [{"date": "2024-01-01"}]
+
+
+def test_peer_valuation_and_f8():
+    from agent.narrative import peer_valuation
+    from agent.specialists import f8_overvalued
+    data = {"issue_pe": "38.35", "peers": [
+        {"name": "Synoptics Technologies Limited", "pe": 38.35, "page": 76},
+        {"name": "Allied Digital Services Limited", "pe": "9.82", "page": 76}]}
+    s = peer_valuation(data, "Synoptics Technologies Limited")
+    assert s["peer_median_pe"] == 9.82 and round(s["premium"], 2) == 3.91 and s["pages"] == [76]
+    assert f8_overvalued(s).severity == "HIGH"
+    assert peer_valuation({"issue_pe": 20, "peers": []})["premium"] is None
+
+
+def test_rpt_share_and_f6():
+    from agent.narrative import rpt_share
+    from agent.specialists import f6_related_parties
+    data = {"unit": "lakhs", "rows": [
+        {"party": "A Pvt Ltd", "nature": "sale", "fiscal_year": "2024-03-31", "amount": "900"},
+        {"party": "B", "nature": "purchase", "fiscal_year": "2024-03-31", "amount": 300},
+        {"party": "C", "nature": "remuneration", "fiscal_year": "2024-03-31", "amount": 50},
+        {"party": "A Pvt Ltd", "nature": "sale", "fiscal_year": "2023-03-31", "amount": 100}]}
+    s = rpt_share(data, {"FY24": 40.0, "FY23": 30.0})
+    assert s["fiscal_year"] == "FY24" and s["rpt_cr"] == 12.0 and s["share"] == 0.3
+    assert f6_related_parties(s).severity == "ELEVATED"
+
+
+def test_gcp_cap_follows_the_rules_at_the_bid_date():
+    from agent.narrative import gcp_cap, printed_gross
+    assert gcp_cap(35.076, date(2023, 6, 30)) == pytest.approx(8.769)      # 25% before Mar 2025
+    assert gcp_cap(100.0, date(2025, 6, 1)) == 10.0 and gcp_cap(20.0, date(2025, 6, 1)) == 3.0
+    page = "(Rs. in Lakhs)\nGross Proceeds from the Fresh Issue 3507.60\nNet Proceeds 3457.60"
+    assert printed_gross([page], [1]) == pytest.approx(35.076)
+    data = {"unit": "lakh", "gross_proceeds": "3008", "rows": [
+        {"object": "Working capital", "kind": "working_capital", "amount": 1757.6},
+        {"object": "General Corporate Purpose", "kind": "gcp", "amount": 670}]}
+    s = objects_summary(data, date(2023, 6, 30), printed_gross([page], [1]))
+    assert s["gross_cr"] == pytest.approx(35.076) and f9_use_of_money(s, [67]).severity != "HIGH"
+
+
+def test_f8_uses_the_issuers_row_and_f4_clears_without_allotments():
+    from agent.narrative import peer_valuation
+    s = peer_valuation({"peers": [{"name": "Synoptics Technologies Limited", "pe": 38.35},
+                                  {"name": "Allied Digital Services Limited", "pe": 9.82}]},
+                       "Synoptics Technologies Limited")
+    assert s["issue_pe"] == 38.35 and round(s["premium"], 1) == 3.9
+    none = insider_discount([{"date": "2016-01-01", "shares": 1, "issue_price": 10}], 100.0, AS_OF)
+    assert f4_insider_discount(none).severity == "LOW"
