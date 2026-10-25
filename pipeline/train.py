@@ -27,8 +27,10 @@ BANKER = ["f_banker_crash", "f_banker_low_history", "f_banker_median_ret"]
 WATCHLIST = ["f_watchlist_hit", "f_watchlist_hop1"]
 RHP = ["f_cfo_pat", "f_cfo_neg_pat_pos", "f_recv_rev_gap", "f_profit_spike",
        "f_ebitda_headroom_min", "f_other_income_share", "f_rev_growth"]
+PARTIES = ["f_auditor_changed", "f_auditor_crash", "f_top10_customers"]
 CANDIDATES = {"v2-banker": BANKER, "v2-banker-watchlist": BANKER + WATCHLIST,
-              "v2-banker-watchlist-rhp": BANKER + WATCHLIST + RHP}
+              "v2-banker-watchlist-rhp": BANKER + WATCHLIST + RHP,
+              "v2-full": BANKER + WATCHLIST + RHP + PARTIES}
 FEATURES = BANKER          # the banker-only rule and v0 model use these
 TEST_SHARE = 0.3
 VALIDATION_SHARE = 0.2     # of the training rows, newest first

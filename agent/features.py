@@ -171,6 +171,23 @@ def watchlist_features(links: list[Link]) -> dict[str, float]:
             "f_watchlist_pending": float(sum(not l.confirmed for l in links))}
 
 
+def auditor_features(data: DataPort, ipo_id: str, as_of: date,
+                     base_rate: float | None) -> dict[str, float | None]:
+    """F7 inputs: an auditor change in the 3 years before the RHP, and the auditor's
+    own track record as of the bid date (shrunk like the banker's)."""
+    rows = data.run("ipo_auditor", ipo_id=ipo_id).rows
+    if not rows:
+        return {"f_auditor_changed": None, "f_auditor_crash": None, "f_auditor_n": None}
+    a = rows[0]
+    history = [r for r in data.run("auditor_track_record", auditor_id=a["auditor_id"],
+                                   as_of=as_of).rows if r["ipo_id"] != ipo_id]
+    bad = sum(adverse_as_of(r, as_of) for r in history)
+    rate = ((bad + SHRINK_K * base_rate) / (len(history) + SHRINK_K)
+            if base_rate is not None else None)
+    return {"f_auditor_changed": None if a["changed_3y"] is None else float(a["changed_3y"]),
+            "f_auditor_crash": rate, "f_auditor_n": float(len(history))}
+
+
 def compute_features(ipo_id: str, as_of: date, data: DataPort,
                      facts: FactSource | None = None, *,
                      named: list[Named] | None = None) -> dict[str, float | None]:
@@ -186,6 +203,7 @@ def compute_features(ipo_id: str, as_of: date, data: DataPort,
         meta = data.run("ipo_meta", ipo_id=ipo_id).rows
         named = archive_parties(data, ipo_id, meta[0]["company"] if meta else ipo_id)
     features |= watchlist_features(watchlist_links(data, ipo_id, as_of, named))
+    features |= auditor_features(data, ipo_id, as_of, features.get("base_rate"))
     # RHP features: verified restated numbers only. The backtest reads past
     # extractions from Zetaris (ArchiveFacts); a live run passes CaseFileFacts.
     features |= rhp_features(facts if facts is not None else ArchiveFacts(data, ipo_id))

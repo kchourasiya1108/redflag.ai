@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from agent.agents.base import Agent, AgentResult, RunContext
 from agent.agents.citations import value_on_page
-from agent.extract import extract_financials, facts_from
+from agent.extract import extract_financials, facts_from, top_customers
 from agent.rhp import load_pages
 from agent.specialists import CaseFileFacts
 
@@ -49,7 +49,7 @@ class Extractor(Agent):
                                     label=ctx.ipo_id, on_attempt=attempt,
                                     time_left=ctx.seconds_left)
         not_found = 0
-        for f in facts_from(result):
+        for f in facts_from(result) + [c for c in (top_customers(pages),) if c]:
             verified = f["verified"]
             if verified and f["value"]:
                 # Citation check on the number itself: it must be printed on its page
@@ -57,7 +57,7 @@ class Extractor(Agent):
                 text = "\n".join(pages[f["page"] - 1:f["page"] + 1])
                 if not value_on_page(f["value"], text):
                     verified, not_found = False, not_found + 1
-            ctx.case.add_fact(f["field"], f["fiscal_year"], f["value"], unit="cr", page=f["page"],
+            ctx.case.add_fact(f["field"], f["fiscal_year"], f["value"], unit=f["unit"], page=f["page"],
                               verified=verified, method=f["method"]
                               + ("" if verified == f["verified"] else ":not_on_page"),
                               agent=self.name)

@@ -156,3 +156,28 @@ ipo_rhp_doc:
     SELECT doc_type, sha256, pages, text_pages, status, url
     FROM RF_ARCHIVE.docs
     WHERE ipo_id = :ipo_id
+
+ipo_auditor:
+  time_free: true      # the auditor and any change in the last 3 years are in the RHP
+  params: {ipo_id: id}
+  columns: {auditor_id: int, canonical_name: str, changed_3y: int, page: int}
+  max_rows: 5
+  sql: >
+    SELECT ia.auditor_id, a.canonical_name, ia.changed_3y, ia.page
+    FROM RF_ARCHIVE.ipo_auditor ia
+    JOIN RF_ARCHIVE.auditors a ON a.auditor_id = ia.auditor_id
+    WHERE ia.ipo_id = :ipo_id
+
+auditor_track_record:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {auditor_id: int, as_of: date}
+  columns: {ipo_id: str, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 2000
+  sql: >
+    SELECT l.ipo_id, l.crashed, l.suspended, l.sebi_action, l.sebi_action_date,
+           l.outcome_known_on
+    FROM RF_ARCHIVE.ipo_auditor ia
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = ia.ipo_id
+    WHERE ia.auditor_id = :auditor_id
+      AND l.outcome_known_on < :as_of

@@ -66,3 +66,26 @@ def test_rhp_features():
     assert feats["f_ebitda_headroom_min"] == pytest.approx(ebitda(facts(**BASE), "FY22") - 1)
     assert feats["f_recv_rev_gap"] == pytest.approx(8 / 7 - 1 - (40 / 30 - 1))
     assert set(rhp_features(_Facts([])).values()) == {None}
+
+
+def test_f5_top_customers_needs_a_repeated_value():
+    from agent.extract import top_customers
+    from agent.specialists import f5_concentration
+    once = top_customers(["Our top 10 customers contributed 91.17% of revenue."])
+    assert once["value"] == 91.17 and not once["verified"]
+    twice = top_customers(["Risk: our top ten customers account for 91.17 % of sales.", "x",
+                           "Business: top 10 customers contributed 91.17% in FY24; amount 770.61%"])
+    assert twice["verified"] and twice["page"] == 1
+    f = _Facts([{**twice, "fiscal_year": None}])
+    assert f5_concentration(f).severity == "HIGH" and f.years() == []
+
+
+def test_auditor_features_are_as_of_and_shrunk():
+    from agent.config import ROOT
+    from agent.features import auditor_features
+    from agent.tools_zetaris import DataPort, MockZetaris
+    from datetime import date
+    port = DataPort(MockZetaris(ROOT / "data" / "sample" / "archive_sample.db"), date(2025, 1, 1))
+    feats = auditor_features(port, "NSE-2023-SYNOPTICS", date(2025, 1, 1), 0.1)
+    assert feats["f_auditor_n"] is not None and 0 <= feats["f_auditor_crash"] <= 1
+    assert auditor_features(port, "NSE-2099-NONE", date(2025, 1, 1), 0.1)["f_auditor_crash"] is None

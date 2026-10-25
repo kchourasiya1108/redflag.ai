@@ -32,7 +32,8 @@ class _Facts:
     """Verified facts in memory: {(field, fy): (value, page)}."""
 
     def __init__(self, rows: list[dict]):
-        self._v = {(r["field"], r["fiscal_year"]): (r["value"], r.get("page"))
+        # An undated fact (a share of revenue) has fiscal_year "" (None once read back).
+        self._v = {(r["field"], r["fiscal_year"] or ""): (r["value"], r.get("page"))
                    for r in rows if r.get("verified") and r.get("value") is not None}
 
     def get(self, field: str, fiscal_year: str) -> float | None:
@@ -44,7 +45,7 @@ class _Facts:
         return hit[1] if hit else None
 
     def years(self) -> list[str]:
-        """Full financial years, newest first."""
+        """Full financial years, newest first (undated facts such as shares are not years)."""
         return sorted({fy for _, fy in self._v if fy.startswith("FY")}, reverse=True)
 
 
@@ -109,6 +110,7 @@ def rhp_features(f: FactSource) -> dict[str, float | None]:
         "f_other_income_share": _ratio(f.get("pl.other_income", t), f.get("pl.pbt", t))
         if t else None,
         "f_rev_growth": rev_g,
+        "f_top10_customers": f.get("biz.top10_customers_pct", ""),
     }
 
 
@@ -174,7 +176,17 @@ def f3_eligibility(f: FactSource) -> Finding | None:
     return Finding("F3", sev, {"ebitda": known, "near_floor_years": near}, text, pages)
 
 
-SPECIALISTS = (f1_paper_profits, f2_profit_spike, f3_eligibility)
+def f5_concentration(f: FactSource) -> Finding | None:
+    share = f.get("biz.top10_customers_pct", "")
+    if share is None:
+        return None
+    sev = "HIGH" if share >= 90 else "ELEVATED" if share >= 70 else "LOW"
+    return Finding("F5", sev, {"top10_customers_pct": share},
+                   f"The top 10 customers account for {share:.1f}% of revenue.",
+                   [p for p in (f.page("biz.top10_customers_pct", ""),) if p])
+
+
+SPECIALISTS = (f1_paper_profits, f2_profit_spike, f3_eligibility, f5_concentration)
 
 
 def f4_insider_discount(summary: dict) -> Finding | None:
