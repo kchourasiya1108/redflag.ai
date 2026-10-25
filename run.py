@@ -9,6 +9,7 @@
     python run.py explain-label NSE-2024-X # show how one label was computed
     python run.py zetaris render|load-pg|register|check   # Zetaris setup
     python run.py investigate NSE-2023-SYNOPTICS [--sample]  # one run, JSON to stdout
+    python run.py llm-baseline             # single-prompt Nemotron baseline on the test split
     python run.py serve                    # FastAPI on 0.0.0.0:$PORT
 """
 from __future__ import annotations
@@ -64,6 +65,14 @@ def main(argv: list[str]) -> int:
                 "type": e.type, "message": str(e), "recoverable": e.recoverable}}, indent=2))
             return 1
         print(json.dumps(out, indent=2, default=str))
+        return 0
+
+    if args.stages[0] == "llm-baseline":
+        from agent.llm import Budget, gateway_from_env
+        from pipeline.llm_baseline import run_baseline
+        gateway = gateway_from_env(cfg.data)
+        gateway.budget = Budget(max_calls=2000, max_tokens=50_000_000)
+        run_baseline(conn, gateway, cfg.cache / "pages", cfg.data / "backtest" / "llm_baseline.json")
         return 0
 
     if args.stages[0] == "serve":
