@@ -1,0 +1,13 @@
+{
+  "routes": {
+    "extract": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "reason": "nvidia/nemotron-3-ultra-550b-a55b"
+  },
+  "role_system": {
+    "extract": "/no_think"
+  },
+  "role_max_tokens": {
+    "extract": 8000,
+    "reason": 8000
+  }
+}

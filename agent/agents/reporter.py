@@ -7,6 +7,7 @@ Citation verifier then re-checks every cited value (phase 16).
 from __future__ import annotations
 
 import json
+import math
 import re
 
 from pydantic import BaseModel, Field
@@ -90,13 +91,21 @@ def _ungroup(text: str) -> str:
 def allowed_numbers(out: dict) -> set[str]:
     """Every number in the evidence as written, plus its usual roundings and, for
     probabilities and shares, as a percentage."""
-    blob = _ungroup(json.dumps(out, default=str))
+    # ensure_ascii=False: an escaped "₹" (\u20b9) would glue its hex to the amount.
+    blob = _ungroup(json.dumps(out, default=str, ensure_ascii=False))
     allowed = set()
+
+    def rounded(v: float) -> set[str]:      # both ways: 15.25 may be written 15.2 or 15.3
+        out = set()
+        for d in (0, 1, 2):
+            f = 10 ** d
+            out |= {f"{v:.{d}f}", f"{math.floor(v * f) / f:.{d}f}", f"{math.ceil(v * f) / f:.{d}f}"}
+        return out
     for token in re.findall(r"-?\d+(?:\.\d+)?", blob):
         v = abs(float(token))
-        allowed |= {token.lstrip("-"), f"{v:.2f}", f"{v:.1f}", f"{v:.0f}"}
-        if v < 1:
-            allowed |= {f"{v * 100:.0f}", f"{v * 100:.1f}"}
+        allowed |= {token.lstrip("-")} | rounded(v)
+        if v < 1:                       # a probability or share, as a percentage
+            allowed |= rounded(v * 100)
     return {a.rstrip("0").rstrip(".") if "." in a else a for a in allowed} | allowed
 
 

@@ -116,3 +116,15 @@ def test_summary_accepts_grouped_numbers():
     out = {"rating": "LOW", "p_adverse": 0.05, "reasons": [{"text": "revenue 1234.5"}],
            "skeptic_notes": [], "cleared_checks": [], "questions": [], "not_checked": []}
     assert plain_summary(FakeGateway([{"summary": "Revenue was ₹1,234.5 cr."}]), out)
+
+
+def test_summary_accepts_a_small_probability_as_a_percentage():
+    out = {"rating": "LOW", "p_adverse": 0.0053, "reasons": [], "skeptic_notes": [],
+           "cleared_checks": [], "questions": [], "not_checked": []}
+    assert plain_summary(FakeGateway([{"summary": "A 0.53% probability of an adverse outcome."}]), out)
+
+
+def test_summary_reads_rupee_amounts():
+    out = {"rating": "ELEVATED", "p_adverse": 0.1525, "reasons": [{"text": "PAT ₹4.32 cr"}],
+           "skeptic_notes": [], "cleared_checks": [], "questions": [], "not_checked": []}
+    assert plain_summary(FakeGateway([{"summary": "A 15.3% chance; PAT was ₹4.32 crore."}]), out)
