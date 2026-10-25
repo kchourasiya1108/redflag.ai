@@ -36,6 +36,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 CACHE_VERSION = 1
+ROLES_FILE = "_roles.json"
 
 
 class GatewayError(RuntimeError):
@@ -93,11 +94,12 @@ class Provider:
         return [m.get("id") for m in resp.json().get("data", [])]
 
     def chat(self, messages: list[dict], route: str, max_tokens: int,
-             model: str | None = None) -> dict:
+             model: str | None = None, timeout_s: float | None = None) -> dict:
         body = {"model": model or self.model_for(route), "messages": messages,
                 "temperature": 0, "max_tokens": max_tokens}
         resp = self._http.post(f"{self.base}/chat/completions", json=body,
-                               headers=self.chat_headers)
+                               headers=self.chat_headers,
+                               **({"timeout": timeout_s} if timeout_s else {}))
         if resp.status_code >= 400:
             raise GatewayError(f"{self.name} HTTP {resp.status_code}: {resp.text[:200]}")
         out = resp.json()
@@ -173,6 +175,7 @@ class Gateway:
     role_system: dict[str, str] = field(default_factory=dict)     # role -> system prefix
     role_max_tokens: dict[str, int] = field(default_factory=dict)  # role -> default budget
     retry_backoff_s: float = 0.0        # pause before a retry (provider 5xx, empty reply)
+    deadline: float | None = None       # time.perf_counter() value; no call starts after it
     budget: Budget = field(default_factory=Budget)
     on_call: Callable[[dict], None] | None = None     # trace hook
 
@@ -265,8 +268,12 @@ class Gateway:
             for attempt in (1, 2):
                 self.budget.check()
                 t0 = time.perf_counter()
+                left = None if self.deadline is None else self.deadline - t0
+                if left is not None and left < 5:
+                    raise BudgetExceeded("the run's time limit leaves no room for a model call")
                 try:
-                    out = provider.chat(messages, route, max_tokens, model)
+                    out = provider.chat(messages, route, max_tokens, model,
+                                        timeout_s=min(180.0, left) if left else None)
                     if not out["text"].strip():
                         raise GatewayError("empty reply (the token budget went on reasoning?)")
                 except (GatewayError, httpx.HTTPError, KeyError, ValueError) as e:
@@ -290,6 +297,22 @@ class Gateway:
         for folder in [self.cache_dir] + ([self.replay_dir] if self.record_replay else []):
             folder.mkdir(parents=True, exist_ok=True)
             (folder / f"{key}.json").write_text(json.dumps(data))
+        if self.record_replay:
+            # Replays are keyed by the resolved model and the role prompts, so a
+            # recording saves the roles it used; sample mode loads them (below).
+            (self.replay_dir / ROLES_FILE).write_text(json.dumps(
+                {"routes": self.routes, "role_system": self.role_system,
+                 "role_max_tokens": self.role_max_tokens}, indent=2))
+
+    def use_recorded_roles(self) -> bool:
+        """Sample mode: resolve roles exactly as the recording did, whatever .env says."""
+        path = self.replay_dir / ROLES_FILE
+        if not path.exists():
+            return False
+        saved = json.loads(path.read_text())
+        self.routes, self.role_system = saved["routes"], saved["role_system"]
+        self.role_max_tokens = {k: int(v) for k, v in saved["role_max_tokens"].items()}
+        return True
 
     def _trace(self, purpose: str, r: GenResult) -> None:
         if self.on_call:

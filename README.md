@@ -64,35 +64,50 @@ Then compute features, train the v0 (banker-only) model and publish:
 
 ## Zetaris (data layer)
 
-Nothing is installed locally: RedFlag talks to a hosted Zetaris instance over
-its REST API (`ZETARIS_REST_URL`, `ZETARIS_API_KEY`, `ZETARIS_ORG_ID`).
-
-1. `run.py publish` writes `data/publish/parquet/` (Parquet per table, prices
-   split by year) and `data/publish/postgres/` (CSVs plus `schema-<db>.sql` and `load-<db>.sql` for the `redflag_archive`, `redflag_live` and `redflag_prices` databases; `python run.py zetaris load-pg` loads them).
-2. Upload the Parquet folder to the bucket in `RF_FILES_BASE` (files route), or
-   load the Postgres files into a hosted Postgres (`ZETARIS_ARCHIVE_ROUTE=postgres`).
-3. Register and verify:
+Zetaris runs in Docker on the Linux PC and serves the archive from Postgres
+as three Lightning sources: `RF_ARCHIVE`, `RF_LIVE` and `RF_PRICES`, one
+database each, 24 tables. Every row an agent reads in a live run comes
+through it, and every `data.query` trace event says `source: zetaris-rest`.
 
 ```bash
-.venv/bin/python run.py zetaris render     # print the Lightning SQL (secrets masked)
-.venv/bin/python run.py zetaris register   # send it to Zetaris
-.venv/bin/python run.py zetaris check      # row counts: Zetaris vs local archive
+.venv/bin/python run.py publish            # data/publish/postgres/ (and Parquet for the files route)
+.venv/bin/python run.py zetaris load-pg    # load redflag_archive | live | prices
+.venv/bin/python run.py zetaris register   # CREATE DATASOURCE + REGISTER/REFRESH TABLES
+.venv/bin/python run.py zetaris check      # row counts: Zetaris == archive.db
 ```
 
 Agents read data only through named templates in
-[agent/queries.yaml](agent/queries.yaml), via the Data Port and its
-Leakage Guard. Without Zetaris credentials the same SQL runs on a SQLite stand-in.
+[agent/queries.yaml](agent/queries.yaml), via the Data Port and its Leakage
+Guard. Without Zetaris credentials, the same SQL runs on a SQLite stand-in.
 
-## Meterless (model and agent engines)
+## Meterless (Power layer and engines)
 
-- **Nightshift runtime:** every model call goes through one gateway
-  ([agent/llm.py](agent/llm.py)) to `METERLESS_BASE_URL`, with
-  roles pinned to Nemotron models via `MODEL_ROUTE_*` and no direct NVIDIA
-  fallback (Nightshift holds the NVIDIA key), a disk cache, recorded replies for sample mode, and a run budget.
-- **Engines** (Python ports of the Meterless reference contracts):
-  [Markovian](agent/engines/markovian.py) for long RHP sections,
-  [World Model](agent/engines/world.py) for the shared Case File, and
-  [H-MEM](agent/engines/hmem.py) for lessons across runs, gated by `as_of`.
+- **Nightshift is the only model provider.** Every call goes through
+  [agent/llm.py](agent/llm.py), which follows provider contract v4 (bearer
+  token, `meterless-app`, `meterless-scope: user`, `GET /v1/models`).
+  - Two roles are pinned to Nemotron: `extract` uses
+    `nvidia/nemotron-3.5-lightning-30b-a3b` and `reason` uses
+    `nvidia/nemotron-3-ultra-550b-a55b`.
+  - Each call is traced with the model that served it.
+  - There is no direct NVIDIA call, because Nightshift holds the NVIDIA key.
+- **Engines.** These meet the Build rule:
+
+| Engine | What it does in RedFlag | Code | Feature | Evidence |
+|---|---|---|---|---|
+| **Markovian** | Reads the RHP's share capital history and objects of the issue window by window, carrying table state rather than history | [agent/engines/markovian.py](agent/engines/markovian.py), [agent/narrative.py](agent/narrative.py) | F4 insider discount and F9 use of money on the report card | Official suite **8/8**: [docs/evidence/markovian-conformance.txt](docs/evidence/markovian-conformance.txt); per-run `logs/<run>/markovian.jsonl` |
+| **World Model** | The Case File: every entity, edge, fact and flag, with provenance (agent, run, `rhp:`/`zq:`/`sebi:` evidence) | [agent/engines/world.py](agent/engines/world.py), [agent/case_file.py](agent/case_file.py) | `output/<run>/case_file.json`; the Skeptic's and Reporter's context | Official suite **8/8**: [docs/evidence/world-model-conformance.txt](docs/evidence/world-model-conformance.txt) |
+| H-MEM | Lessons across runs (a banker's RHP layout, earlier Skeptic rulings), gated by `as_of`, never a score input | [agent/engines/hmem.py](agent/engines/hmem.py) | Narrative reader and Skeptic context | Unit tests |
+
+The official conformance suites run against the Python engines through
+TypeScript adapters:
+
+```bash
+.venv/bin/python -m agent.engines.conformance.run          # clones Meterless @1742dec, runs the suites
+```
+
+- **SEBI review.** Nemotron reviews every proposed order-to-entity link, and
+  its verdict is final (`run.py sebi-review model`). The model and its
+  reason are stored on each row.
 
 ## API (FastAPI)
 
@@ -100,15 +115,41 @@ Leakage Guard. Without Zetaris credentials the same SQL runs on a SQLite stand-i
 .venv/bin/python run.py serve              # 0.0.0.0:$PORT (default 8000)
 curl -s localhost:8000/health
 curl -s -X POST localhost:8000/run -H 'content-type: application/json' \
-  -d '{"input": {"ipo_id": "NSE-2023-SYNOPTICS"}}'
-.venv/bin/python run.py investigate NSE-2023-SYNOPTICS   # same, from the CLI
+  -d '{"input": {"ipo_id": "NSE-2023-SYNOPTICS"}, "options": {"sample_mode": true}}'
+.venv/bin/python run.py investigate NSE-2023-SYNOPTICS [--sample]   # same, from the CLI
 ```
 
-Each run writes `logs/trace-<run_id>.jsonl`. `SAMPLE_MODE=true` serves the
-committed sample database and recorded model replies with no network.
+A live run takes about 5 minutes, because Nemotron calls take 13–30 s
+each. Sample mode takes about a second.
+
+Each run writes:
+- `logs/trace-<run_id>.jsonl`, with every agent step, transition, Zetaris
+  query and model call;
+- `output/<run_id>/report.md` and `case_file.json`;
+- the per-engine logs under `logs/<run_id>/`.
+
+`SAMPLE_MODE=true` serves the committed sample database and the recorded
+Nemotron replies for the demo IPOs, with no network:
+- BSE-2024-544168 Varyaa Creations
+- NSE-2023-SYNOPTICS Synoptics Technologies
+- BSE-2024-544310 Yash Highvoltage
+
+## Backtest
+
+`run.py extract features train` uses a time split: 390 training IPOs and
+205 test IPOs.
+
+| On the 205 test IPOs | AUC | Recall at HIGH | False alarms |
+|---|---|---|---|
+| **v2 scorer** (banker + watchlist + RHP numbers) | **0.662** | **36%** | 15.6% |
+| v0 banker-only model | 0.603 | 29% | 8.2% |
+| banker rule | 0.576 | 0% | 0% |
+
+See [docs/DESIGN.md](docs/DESIGN.md#backtest-results) for the details.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q              # 128 tests, no network
+.venv/bin/python smoke_test.py --full      # live: Zetaris + Meterless
 ```

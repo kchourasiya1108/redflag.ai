@@ -73,6 +73,8 @@ def model_gateway(cfg: Settings, sample_mode: bool, tracer: Tracer):
                          **{k: v for k, v in e.items() if k != "action"})
     gateway = gateway_from_env(cfg.data, on_call=on_call)
     gateway.sample_mode = sample_mode
+    if sample_mode:
+        gateway.use_recorded_roles()
     return gateway if gateway.providers or sample_mode else None
 
 
@@ -152,6 +154,8 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
     client, source = data_client(cfg, sample_mode)
     if gateway is None:
         gateway = model_gateway(cfg, sample_mode, tracer)
+    if gateway is not None:
+        gateway.deadline = started + HARD_LIMIT_S - 30   # leave time to score and report
     if memory is None:
         from agent.engines.hmem import HMem
         # Sample runs get a fresh, empty memory so they never depend on run order.

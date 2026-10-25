@@ -45,8 +45,9 @@ class Extractor(Agent):
                              f"{kind} via {method}: verified {best.verified_periods or 'none'}",
                              retry_count=best.attempts - 1, detail_msg=best.detail[:160])
         ctx.scratch["gaps"] = []        # this pass's gaps only
-        result = extract_financials(pages, gateway=ctx.gateway if not ctx.sample_mode else None,
-                                    label=ctx.ipo_id, on_attempt=attempt)
+        result = extract_financials(pages, gateway=ctx.gateway,     # replays in sample mode
+                                    label=ctx.ipo_id, on_attempt=attempt,
+                                    time_left=ctx.seconds_left)
         not_found = 0
         for f in facts_from(result):
             verified = f["verified"]

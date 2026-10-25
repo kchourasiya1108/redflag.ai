@@ -120,7 +120,7 @@ def map_rows(gateway, text: str, kind: str, page: int, purpose: str) -> Statemen
 
 
 def extract_financials(pages: list[str], *, gateway=None, label: str = "rhp",
-                       on_attempt=None) -> dict[str, Extracted]:
+                       on_attempt=None, time_left=lambda: float("inf")) -> dict[str, Extracted]:
     """The three restated statements, each with its checks and the method that won."""
     out: dict[str, Extracted] = {}
     for kind in KINDS:
@@ -130,6 +130,9 @@ def extract_financials(pages: list[str], *, gateway=None, label: str = "rhp",
         if gateway is not None and candidates:
             attempts += [("llm_row_map", 2), ("llm_row_map_wide", 3)]
         for method, span in attempts:
+            if method != "text_table" and time_left() < 120:
+                best.detail = f"{method}: skipped, the run's time limit is near"
+                break
             best.attempts += 1
             try:
                 st = _attempt(pages, kind, candidates, method, span, gateway, label)

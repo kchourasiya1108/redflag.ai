@@ -35,7 +35,8 @@ PG_DATABASES = {"archive": [t for t in TABLES if t != "prices"],
                 "live": ["sebi_orders", "sebi_order_entity"],
                 "prices": ["prices"]}
 # Demo IPOs for sample mode; their bankers' full histories come along.
-DEFAULT_SAMPLE = "NSE-2023-SYNOPTICS"
+# HIGH (named in a SEBI order after listing), ELEVATED, and LOW demo cases.
+DEFAULT_SAMPLE = "BSE-2024-544168,NSE-2023-SYNOPTICS,BSE-2024-544310"
 
 
 def run(ctx: StageContext) -> dict:
@@ -165,6 +166,15 @@ def build_sample(ctx: StageContext) -> int:
     sample.commit()
     n = sample.execute("SELECT count(*) FROM ipos").fetchone()[0]
     sample.close()
+    # The demo RHPs' page text, so sample mode reads the same pages offline.
+    pages_out = ctx.settings.data / "sample" / "pages"
+    pages_out.mkdir(parents=True, exist_ok=True)
+    marks = ",".join("?" * len(demo))
+    for (sha,) in ctx.conn.execute(f"SELECT sha256 FROM docs WHERE doc_type = 'rhp' AND "
+                                   f"status = 'ok' AND ipo_id IN ({marks})", demo):
+        src = ctx.settings.cache / "pages" / f"{sha}.json"
+        if src.exists():
+            (pages_out / src.name).write_bytes(src.read_bytes())
     return n
 
 

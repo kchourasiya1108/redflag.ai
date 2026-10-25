@@ -341,3 +341,13 @@ def test_roles_resolve_to_pinned_models_and_reasoning_is_stripped(tmp_path):
     res = gw.generate("hi", route="reason", purpose="t")
     assert seen[0][1] == "nvidia/nemotron-3-ultra-550b-a55b"
     assert res.route == "nvidia/nemotron-3-ultra-550b-a55b" and res.text == "done"
+
+
+def test_gateway_never_starts_a_call_after_the_run_deadline(tmp_path):
+    import time
+    seen = []
+    gw = _gateway(tmp_path, [_provider("meterless", ["late"], seen)])
+    gw.deadline = time.perf_counter() - 1
+    with pytest.raises(BudgetExceeded):
+        gw.generate("hi", purpose="t")
+    assert seen == []

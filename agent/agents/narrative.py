@@ -18,8 +18,10 @@ class NarrativeReader(Agent):
     def run(self, ctx: RunContext) -> AgentResult:
         pages = ctx.scratch.get("pages") or []
         depth = ctx.case.meta.get("depth")
-        if ctx.gateway is None or not pages or depth not in (STANDARD, FORENSIC):
+        if (ctx.gateway is None or not pages or depth not in (STANDARD, FORENSIC)
+                or ctx.seconds_left() < 180):
             why = ("no model configured" if ctx.gateway is None else "no RHP text" if not pages
+                   else "the run's time limit is near" if ctx.seconds_left() < 180
                    else f"{depth} depth reads the core sections only")
             for item in ("F4 insider discount", "F9 use of money"):
                 ctx.case.add_not_checked(item, why, agent=self.name)
