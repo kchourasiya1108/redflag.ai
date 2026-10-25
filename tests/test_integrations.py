@@ -164,30 +164,63 @@ def test_split_markers():
     assert model_totals(20)["markovianTotal"] == 34_000
 
 
-def test_world_model_idempotent_and_graph(tmp_path):
-    wm = WorldModel("r1", tmp_path / "world.jsonl")
-    a = wm.ingest("entity", {"type": "banker", "name": "Hem Securities"},
-                  source="rhp:p3", agent_id="Extractor")
-    assert wm.ingest("entity", {"type": "banker", "name": "Hem Securities"},
-                     source="rhp:p3", agent_id="Extractor") is a
-    wm.ingest("edge", {"src": "co", "dst": "banker", "type": "lead_manager_of"},
-              source="rhp:p3", agent_id="Extractor")
-    wm.ingest("edge", {"src": "banker", "dst": "order", "type": "named_in_order"},
-              source="sebi:1", agent_id="Watchlist")
-    assert wm.neighbours("co", hops=2) == {"banker": 1, "order": 2}
-    resumed = WorldModel.resume("r1", tmp_path / "world.jsonl")
-    assert set(resumed.records) == set(wm.records)
+def test_world_model_resolves_names_and_closes_superseded_edges():
+    src = {"kind": "rhp", "at": "2025-03-01T00:00:00Z"}
+    wm = WorldModel("t")
+    a = wm.upsert_entity(type="banker", name="Hem Securities Limited", source=src)
+    b = wm.upsert_entity(type="banker", name="Hem Securities Limited.", source=src)
+    assert a["id"] == b["id"]                                    # auto-merged alias
+    wm.upsert_entity(type="banker", name="Hem Securities Ltd", source=src)
+    assert [p["status"] for p in wm.merge_queue()] == []         # 0.69: a new entity
+    wm.upsert_entity(type="director", name="Ramesh Kumar Jain", source=src)
+    wm.upsert_entity(type="director", name="Ramesh Kumr Jain", source=src)   # 0.94
+    wm.upsert_entity(type="director", name="Ramesh K. Jainn", source=src)
+    assert all(p["status"] == "pending" for p in wm.merge_queue())
+    with pytest.raises(ValueError, match="provenance"):
+        wm.upsert_entity(type="banker", name="No Source", source=None)
+    wm.relate(from_="x", type="auditor_of", to="old", source=src, valid_from="2024-01-01")
+    wm.relate(from_="x", type="auditor_of", to="new", source=src, valid_from="2025-01-01")
+    open_edges = [r for r in wm.store.relationships.values() if not r.get("validTo")]
+    assert [r["to"] for r in open_edges] == ["new"]
 
 
-def test_world_model_context_prioritises_mentions():
-    wm = WorldModel("r1")
-    wm.ingest("fact", {"field": "pat", "fiscal_year": "FY24", "value": 4.2},
-              source="rhp:p100", agent_id="Extractor")
-    wm.ingest("flag", {"flag_id": "F2", "severity": "HIGH", "text": "profit spike"},
-              source="rhp:p100", agent_id="Specialist")
-    ctx = wm.context("skeptic on F2", mentions=["profit spike"])
-    assert ctx.items[0].record.data["flag_id"] == "F2"
-    assert ctx.strategy == "task_focused"
+def test_case_file_facts_flags_graph_and_resume(tmp_path):
+    from agent.case_file import CaseFile
+    as_of = date(2025, 3, 10)
+    cf = CaseFile("r1", "NSE-2025-X", as_of, log_dir=tmp_path)
+    banker = cf.add_entity("banker", "Hem Securities Limited", source="rhp:p3", agent="Extractor")
+    director = cf.add_entity("person", "Ramesh Jain", source="rhp:p40", agent="Extractor")
+    cf.link(banker, "lead_manager_of", cf.company, source="rhp:p3", agent="Extractor")
+    cf.link(director, "director_of", cf.company, source="rhp:p40", agent="Extractor")
+    cf.link(director, "named_in_order", "sebi:ORD-1", source="sebi:ORD-1", agent="Watchlist")
+    assert cf.neighbours(banker, hops=2) == {cf.company: 1, director: 2}
+
+    cf.add_fact("pat", "FY24", 4.0, unit="cr", page=187, verified=False, method="table",
+                agent="Extractor")
+    cf.add_fact("pat", "FY24", 4.21, unit="cr", page=187, verified=True, method="table",
+                agent="Verifier")
+    assert cf.fact("pat", "FY24")["value"] == 4.21 and len(cf.facts()) == 1   # superseded
+    cf.add_flag("F2", "HIGH", value={"jump": 2.4}, evidence=["rhp:p201"], confidence=0.8,
+                agent="Specialist", text="profit spike")
+    cf.add_flag("F10", "LOW", value={}, evidence=["zq:ab"], confidence=0.5, agent="Banker")
+    cf.rule_on_flag("F2", "downgraded", "order book explains it", ["rhp:p96"],
+                    severity="ELEVATED")
+    assert cf.flag("F2")["severity"] == "ELEVATED" and cf.flag("F10")["severity"] == "LOW"
+
+    ctx = cf.context("skeptic on F2", mentions=["order book"])
+    assert ctx.items[0].data["id"] == "F2" and ctx.strategy == "task_focused"
+
+    doc = cf.case_file()
+    assert doc["meta"]["as_of"] == "2025-03-10" and len(doc["flags"]) == 2
+    assert {e["type"] for e in doc["entities"]} == {"banker", "person"}
+
+    again = CaseFile.resume("r1", "NSE-2025-X", as_of, tmp_path)
+    writes = len(again.world.audit())
+    again.add_fact("pat", "FY24", 4.21, unit="cr", page=187, verified=True, method="table",
+                   agent="Verifier")
+    assert again.case_file()["facts"] == doc["facts"]
+    assert len(again.world.store.facts) == len(cf.world.store.facts)        # replay no-op
+    assert len(again.world.audit()) == writes                              # nothing new written
 
 
 def test_hmem_never_returns_memories_from_later_runs(tmp_path):
