@@ -11,6 +11,7 @@ World Model engine).
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
@@ -185,11 +186,16 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
         raise RunError("DataSourceUnavailable", f"Zetaris could not be reached: {e}"[:300],
                        recoverable=True) from e
     output = ctx.scratch["output"]
-    return {"run_id": run_id, "status": "partial" if ctx.scratch.get("partial") else "success",
-            "output": output,
-            "agents": [{"name": a.name, "role": a.role, "uses_llm": a.uses_llm}
-                       for a in orchestrator.agents.values()],
-            "trace_id": f"trace-{run_id}", "log_file": str(tracer.path),
-            "case_file": str(ctx.scratch["output_dir"] / "case_file.json"),
-            "report": str(ctx.scratch["output_dir"] / "report.md"),
-            "execution_time_seconds": round(time.perf_counter() - started, 2)}
+    agents = list({id(a): a for a in orchestrator.agents.values()}.values())   # one per agent
+    result = {"run_id": run_id, "status": "partial" if ctx.scratch.get("partial") else "success",
+              "output": output,
+              "agents": [{"name": a.name, "role": a.role, "uses_llm": a.uses_llm} for a in agents],
+              "trace_id": f"trace-{run_id}", "log_file": str(tracer.path),
+              "case_file": str(ctx.scratch["output_dir"] / "case_file.json"),
+              "report": str(ctx.scratch["output_dir"] / "report.md"),
+              "execution_time_seconds": round(time.perf_counter() - started, 2)}
+    # The whole response, so the web app can show past runs (app/api.py).
+    tmp = ctx.scratch["output_dir"] / "result.json.tmp"     # readers never see half a file
+    tmp.write_text(json.dumps(result, indent=1, ensure_ascii=False, default=str))
+    tmp.replace(tmp.with_suffix(""))
+    return result

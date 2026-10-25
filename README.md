@@ -109,6 +109,30 @@ TypeScript adapters:
   its verdict is final (`run.py sebi-review model`). The model and its
   reason are stored on each row.
 
+## Web app
+
+A React frontend (`web/`, Vite + TypeScript) served by the FastAPI app:
+search the 693 archived IPOs, start a live or sample run, watch each agent
+step stream in, then read the report card. Every cited RHP page, SEBI order
+and Zetaris query opens in a side panel; the report also shows the verified
+financials, the parties graph, how each feature moved the probability, and
+the full trace. The Backtest page shows the test-set metrics against the
+baselines.
+
+```bash
+cd web && npm install && npm run build && cd ..   # once, and after frontend changes
+.venv/bin/python run.py serve                     # then open http://localhost:8000
+# frontend development with hot reload (proxies /api to :8000):
+cd web && npm run dev                             # http://localhost:5173
+```
+
+One live run at a time (Zetaris, Nightshift and the run memory are shared);
+sample runs can overlap. The browser API is under `/api` (`app/api.py`):
+`GET /api/ipos`, `POST /api/runs`, `GET /api/runs/{id}/events` (the trace as
+server-sent events), `/case`, `/explain`, `/trace`, `/report.md`,
+`GET /api/ipos/{id}/pages/{n}`, `GET /api/sebi/{order}`, `GET /api/backtest`
+and `GET /api/status` (probes Zetaris and Nightshift).
+
 ## API (FastAPI)
 
 ```bash
@@ -131,7 +155,8 @@ returns a recoverable `DataSourceUnavailable` error (HTTP 503 from
 Each run writes:
 - `logs/trace-<run_id>.jsonl`, with every agent step, transition, Zetaris
   query and model call;
-- `output/<run_id>/report.md` and `case_file.json`;
+- `output/<run_id>/report.md`, `case_file.json` and `result.json` (the full
+  response, which the web app lists as run history);
 - the per-engine logs under `logs/<run_id>/`.
 
 `SAMPLE_MODE=true` serves the committed sample database and the recorded
@@ -151,11 +176,16 @@ Nemotron replies for the demo IPOs, with no network:
 | v0 banker-only model | 0.603 | 29% | 8.2% |
 | banker rule | 0.576 | 0% | 0% |
 
+The single-prompt Nemotron baseline (`run.py llm-baseline`) scores AUC 0.503
+on the 189 test IPOs with RHP text, against 0.673 for the v2 scorer on the
+same IPOs. It catches 72% of adverse IPOs at HIGH, but only by flagging 77%
+of the fine ones.
+
 See [docs/DESIGN.md](docs/DESIGN.md#backtest-results) for the details.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q              # 145 tests, no network
+.venv/bin/python -m pytest -q              # 153 tests, no network
 .venv/bin/python smoke_test.py --full      # live: Zetaris + Meterless
 ```

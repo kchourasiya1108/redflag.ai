@@ -11,6 +11,11 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
+      - uses: actions/setup-node@v4
+        with: {node-version: "20"}
+      - name: Web app typecheck and build
+        working-directory: web
+        run: npm ci && npm run build
       - name: Sample-mode run end to end (the three demo IPOs)
         run: |
           for ipo in BSE-2024-544168 NSE-2023-SYNOPTICS BSE-2024-544310; do
