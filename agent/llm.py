@@ -199,7 +199,11 @@ class Gateway:
             res = self.generate(prompt, system_prompt, route=route, purpose=purpose)
             if on_stream:
                 on_stream(res.text)
-            return {"text": res.text, "model": res.served_model}
+            out = {"text": res.text, "model": res.served_model}
+            if res.tokens_out:          # provider-reported: engines label it "measured"
+                out["metadata"] = {"usage": {"input_tokens": res.tokens_in,
+                                             "output_tokens": res.tokens_out}}
+            return out
         return generator
 
     # -- internals ---------------------------------------------------------

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from pipeline import zetaris_setup
 from agent.engines.hmem import HMem
-from agent.engines.markovian import ChunkConfig, Markovian, split_markers
+from agent.engines.markovian import ChunkConfig, Markovian, model_totals, parse_markers
 from agent.engines.world import WorldModel
 from agent.llm import (BudgetExceeded, Budget, Gateway, MalformedOutput, Provider,
                                  ReplayMiss, parse_structured)
@@ -101,38 +101,67 @@ def test_budget_stops_calls(tmp_path):
         gw.generate("two", purpose="t")
 
 
-def test_markovian_carries_state_and_saves_tokens(tmp_path):
-    prompts = []
+def test_markovian_windows_carry_table_state_and_save_tokens(tmp_path):
+    prompts, chunks = [], []
+    state = "COMPLETED: balance sheet rows\nCONTEXT: unit lakh, columns FY24 FY23"
 
     def generator(prompt, attachments=None, system=None, on_stream=None, abort=None):
         prompts.append(prompt)
-        n = len(prompts)
-        tail = '[TASK_COMPLETE]' if n == 3 else '[STATE_CHECKPOINT] {"unit":"lakh"}'
-        return {"text": f"rows from part {n}\n{tail}"}
+        if system:                                   # the reflection pass
+            return {"text": "ratify"}
+        return {"text": f"rows from part {len(prompts)}\n[STATE_CHECKPOINT]\n{state}"}
 
-    chunks = []
-    run = Markovian(generator, ChunkConfig(chunk_size=1000, max_chunks=5),
-                    history_path=tmp_path / "m.jsonl").run(
-        "extract the balance sheet", ["p1 " * 50, "p2 " * 50, "p3 " * 50],
-        on_chunk=chunks.append)
-    assert run.completed and run.stop_reason == "final_marker"
-    assert '{"unit":"lakh"}' in prompts[1]           # carryover reached chunk 2
-    assert "[STATE_CHECKPOINT]" not in chunks[0].content
-    assert run.total_tokens_saved > 0
+    m = Markovian(ChunkConfig(chunk_size=4000, carryover_tokens=640),
+                  history_path=tmp_path / "m.jsonl")
+    run = m.run("extract the balance sheet", generator=generator, mode="EXTRACT",
+                windows=["p1 " * 50, "p2 " * 50, "p3 " * 50], on_chunk=chunks.append)
+    assert run.status == "completed" and len(run.chunks) == 3      # ends with the windows
+    assert "[ATTACHMENT part 2 of 3]" in prompts[1] and "p2 p2" in prompts[1]
+    assert "unit lakh" in prompts[1] and "unit lakh" in prompts[2]   # carryover reached
+    assert [c.cascade_level for c in chunks] == ["marker"] * 3
+    assert "[STATE_CHECKPOINT]" not in run.output
+    assert run.chunk_config.carryover_tokens == 640 and run.token_label == "estimated"
+    assert run.reflection == "ratify"
     assert (tmp_path / "m.jsonl").exists()
 
 
+def test_markovian_config_rejects_out_of_range_values():
+    from agent.engines.markovian import ConfigValidationError, resolve_config
+    with pytest.raises(ConfigValidationError):
+        resolve_config({"chunkSize": 128})
+    with pytest.raises(ConfigValidationError):          # framing + carryover + output
+        resolve_config(ChunkConfig(chunk_size=2000, carryover_tokens=800))
+    assert resolve_config({"overlapTokens": 64}).overlap_tokens == 64
+
+
 def test_markovian_carryover_survives_model_outage():
+    from agent.engines.markovian import next_carryover, resolve_config
+
     def broken(*a, **k):
         raise RuntimeError("down")
-    m = Markovian(lambda *a, **k: {"text": ""}, compressor=broken)
-    state, method = m.carryover(None, "All figures in ₹ lakhs unless stated", "")
-    assert method == "heuristic" and "lakhs" in state
+    state, level = next_carryover(None, "", "All figures in ₹ lakhs unless stated.",
+                                  resolve_config(), broken)
+    assert level == "heuristic" and "lakhs" in state
+
+
+def test_markovian_measured_tokens_and_abort():
+    calls = []
+
+    def generator(prompt, *a):
+        calls.append(prompt)
+        return {"text": "part [STATE_CHECKPOINT] COMPLETED: one part of the job",
+                "metadata": {"usage": {"output_tokens": 42}}}
+    run = Markovian(ChunkConfig(max_chunks=3)).run("job", generator=generator, reflect=False)
+    assert run.status == "max-chunks" and run.token_label == "measured"
+    assert [c.tokens for c in run.chunks] == [42, 42, 42]
+    stopped = Markovian().run("job", generator=generator, aborted=lambda: len(calls) >= 4)
+    assert stopped.status == "aborted" and len(stopped.chunks) == 1
 
 
 def test_split_markers():
-    content, state, final = split_markers("rows\n[STATE_CHECKPOINT] {\"a\":1}")
-    assert (content, state, final) == ("rows", '{"a":1}', False)
+    p = parse_markers("rows\n[STATE_CHECKPOINT] {\"a\":1}")
+    assert (p.cleaned, p.state, p.done) == ("rows", '{"a":1}', False)
+    assert model_totals(20)["markovianTotal"] == 34_000
 
 
 def test_world_model_idempotent_and_graph(tmp_path):
