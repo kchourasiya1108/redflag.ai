@@ -12,11 +12,12 @@ class Specialists(Agent):
 
     def run(self, ctx: RunContext) -> AgentResult:
         facts = ctx.scratch.get("facts")
+        raised = []
+        specialists = list(SPECIALISTS)
         if facts is None or not facts.years():
             ctx.case.add_not_checked("F1-F3", "no verified restated financials", agent=self.name)
-            return AgentResult("skipped: no verified financials")
-        raised = []
-        for specialist in SPECIALISTS:
+            specialists = [s for s in specialists if s.__name__.startswith("f5")]
+        for specialist in specialists if facts is not None else []:
             finding = specialist(facts)
             if finding is None:
                 ctx.case.add_not_checked(specialist.__name__.split("_")[0].upper(),

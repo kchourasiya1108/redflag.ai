@@ -103,3 +103,16 @@ def test_summary_numbers_must_match_exactly():
            "skeptic_notes": [], "cleared_checks": [], "questions": [], "not_checked": []}
     assert plain_summary(FakeGateway([{"summary": "Profit rose 7.5x."}]), out) is None
     assert plain_summary(FakeGateway([{"summary": "A 12% chance; 17.53 recorded."}]), out)
+
+
+def test_uncited_flag_is_withdrawn(tmp_path):
+    ctx = ctx_with(tmp_path, None, PAGES)
+    ctx.case.add_flag("F1", "ELEVATED", value={}, evidence=[], confidence=0.7, agent="t",
+                      text="no citation")
+    assert CitationVerifier().run(ctx).data["withdrawn"] == ["F1"]
+
+
+def test_summary_accepts_grouped_numbers():
+    out = {"rating": "LOW", "p_adverse": 0.05, "reasons": [{"text": "revenue 1234.5"}],
+           "skeptic_notes": [], "cleared_checks": [], "questions": [], "not_checked": []}
+    assert plain_summary(FakeGateway([{"summary": "Revenue was ₹1,234.5 cr."}]), out)

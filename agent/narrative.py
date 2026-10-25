@@ -174,7 +174,9 @@ def objects_summary(data: dict) -> dict:
         return {"error": "unit not stated"}
     by_kind: dict[str, float] = {}
     for r in data.get("rows", []):
-        if re.search(r"(?i)\b(?:total|net\s+proceeds|gross\s+proceeds)\b", str(r.get("object", ""))):
+        if re.match(r"(?i)\W*(?:total|net\s+proceeds|gross\s+proceeds)\b\W*(?:\(|$)?",
+                    str(r.get("object", ""))) and not re.search(
+                        r"(?i)\b(?:for|towards|funding|repayment|working)\b", str(r.get("object", ""))):
             continue                    # a total row would double the base
         amount = _num(r.get("amount"))
         if amount is not None:

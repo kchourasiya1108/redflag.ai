@@ -30,7 +30,7 @@ from agent.agents.skeptic import Skeptic
 from agent.agents.specialists import Specialists
 from agent.agents.watchlist import Watchlist
 from agent.config import Settings
-from agent.tools_zetaris import MockZetaris, ZetarisRestClient
+from agent.tools_zetaris import MockZetaris, ZetarisError, ZetarisRestClient
 from agent.trace import Tracer
 
 __all__ = ["investigate", "RunError", "DISCLAIMER", "Orchestrator"]
@@ -44,7 +44,8 @@ TARGET_S, HARD_LIMIT_S = 180, 600
 # Skeptic's corroboration rule and the score. Missing agents are skipped.
 PIPELINE = ["Intake", "Names", "BankerTrackRecord", "Watchlist", "Planner",
             "Extractor", "Specialists", "Escalation", "NarrativeReader", "Escalation2",
-            "CitationVerifier", "Skeptic", "Scorer", "Evaluator", "Reporter"]
+            "CitationVerifier", "Skeptic", "CitationVerifier2", "Scorer", "Evaluator",
+            "Reporter"]
 
 
 class RunError(RuntimeError):
@@ -94,6 +95,8 @@ class Orchestrator:
         self.agents = {a.name: a for a in agents}
         if "Planner" in self.agents:    # the Planner's second and third looks
             self.agents["Escalation"] = self.agents["Escalation2"] = self.agents["Planner"]
+        if "CitationVerifier" in self.agents:   # re-check after the Skeptic's rulings
+            self.agents["CitationVerifier2"] = self.agents["CitationVerifier"]
 
     def next_state(self, current: str, result: AgentResult, ctx: RunContext) -> str | None:
         if current == "Reporter":
@@ -174,6 +177,11 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
     except UnknownIPO as e:
         tracer.event("Intake", "error", str(e), status="error")
         raise RunError("UnknownIPO", str(e), recoverable=False) from e
+    except ZetarisError as e:
+        tracer.event(ctx.scratch.get("state", "Orchestrator"), "error", str(e)[:200],
+                     status="error")
+        raise RunError("DataSourceUnavailable", f"Zetaris could not be reached: {e}"[:300],
+                       recoverable=True) from e
     output = ctx.scratch["output"]
     return {"run_id": run_id, "status": "partial" if ctx.scratch.get("partial") else "success",
             "output": output,

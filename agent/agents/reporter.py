@@ -69,15 +69,21 @@ def plain_summary(gateway, out: dict) -> str | None:
                                 ).parsed.summary.strip()
     except Exception:
         return None
-    if _BANNED.search(text) or not set(re.findall(r"\d+(?:\.\d+)?", text)) <= allowed_numbers(out):
+    numbers = set(re.findall(r"\d+(?:\.\d+)?", _ungroup(text)))
+    if _BANNED.search(text) or not numbers <= allowed_numbers(out):
         return None
     return text
+
+
+def _ungroup(text: str) -> str:
+    """1,234.5 and 1,23,456 (Indian grouping) -> plain digits."""
+    return re.sub(r"(?<=\d),(?=\d{2,3}\b)", "", text)
 
 
 def allowed_numbers(out: dict) -> set[str]:
     """Every number in the evidence as written, plus its usual roundings and, for
     probabilities and shares, as a percentage."""
-    blob = json.dumps(out, default=str)
+    blob = _ungroup(json.dumps(out, default=str))
     allowed = set()
     for token in re.findall(r"-?\d+(?:\.\d+)?", blob):
         v = abs(float(token))

@@ -59,7 +59,8 @@ def run(req: RunRequest):
         return investigate(settings(), req.input.ipo_id, run_id=run_id,
                            sample_mode=req.options.sample_mode)
     except RunError as e:
-        return _error(run_id, e.type, str(e), e.recoverable, 404 if e.type == "UnknownIPO" else 500)
+        code = {"UnknownIPO": 404, "DataSourceUnavailable": 503}.get(e.type, 500)
+        return _error(run_id, e.type, str(e), e.recoverable, code)
     except FileNotFoundError as e:
         return _error(run_id, "NotReady", str(e), True, 503)
     except (LeakageError, TruncatedResult) as e:

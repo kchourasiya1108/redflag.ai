@@ -163,3 +163,18 @@ def test_post_run_returns_the_execution_contract(sample_cfg, monkeypatch):
     assert {"rating", "p_adverse", "reasons", "skeptic_notes", "cleared_checks", "questions",
             "not_checked", "disclaimer"} <= set(out)
     assert any(a["name"] == "NarrativeReader" and a["uses_llm"] for a in body["agents"])
+
+
+def test_unreachable_zetaris_is_a_recoverable_error(sample_cfg, monkeypatch):
+    import agent.main as main
+    from agent.tools_zetaris import ZetarisError
+
+    class Down:
+        name = "zetaris-rest"
+
+        def query(self, sql, limit):
+            raise ZetarisError("Zetaris query failed: [Errno 64] Host is down")
+    monkeypatch.setattr(main, "data_client", lambda cfg, sample: (Down(), "zetaris"))
+    with pytest.raises(RunError) as err:
+        investigate(sample_cfg, DEMO, sample_mode=False)
+    assert err.value.type == "DataSourceUnavailable" and err.value.recoverable

@@ -89,3 +89,10 @@ def test_auditor_features_are_as_of_and_shrunk():
     feats = auditor_features(port, "NSE-2023-SYNOPTICS", date(2025, 1, 1), 0.1)
     assert feats["f_auditor_n"] is not None and 0 <= feats["f_auditor_crash"] <= 1
     assert auditor_features(port, "NSE-2099-NONE", date(2025, 1, 1), 0.1)["f_auditor_crash"] is None
+
+
+def test_top_customers_pattern_edges():
+    from agent.extract import top_customers
+    same_page = top_customers(["top 10 customers contributed 45.5% ... top 10 customers: 45.5%"])
+    assert same_page["value"] == 45.5 and not same_page["verified"]
+    assert top_customers(["Our top 10 customers grew 123.45% last year"]) is None

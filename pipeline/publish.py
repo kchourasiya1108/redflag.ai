@@ -149,7 +149,8 @@ def build_sample(ctx: StageContext) -> int:
         "sebi_orders": "SELECT * FROM src.sebi_orders",
         "sebi_order_entity": "SELECT * FROM src.sebi_order_entity",
         "features": "SELECT * FROM src.features WHERE ipo_id IN (SELECT ipo_id FROM keep)",
-        "ipo_auditor": "SELECT * FROM src.ipo_auditor WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        # Every auditor link: an auditor's track record must match a live run.
+        "ipo_auditor": "SELECT * FROM src.ipo_auditor",
         "ipo_market_maker": "SELECT * FROM src.ipo_market_maker WHERE ipo_id IN "
                             "(SELECT ipo_id FROM keep)",
         "facts": "SELECT * FROM src.facts WHERE ipo_id IN (SELECT ipo_id FROM keep)",

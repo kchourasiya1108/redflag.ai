@@ -168,7 +168,8 @@ def _latest_full_year_ok(x: Extracted) -> bool:
     return bool(full) and full[0].passed
 
 
-_TOP10 = re.compile(r"(?is)top\s*(?:ten|10)\s+customers?\b.{0,160}?(\d{1,2}(?:\.\d{1,2})?|100(?:\.0+)?)\s*%")
+_TOP10 = re.compile(r"(?is)top\s*(?:ten|10)\s+customers?\b.{0,160}?(?<![\d.,])"
+                    r"(\d{1,2}(?:\.\d{1,2})?|100(?:\.0+)?)(?!\d)\s*%")
 
 
 def top_customers(pages: list[str]) -> dict | None:
@@ -180,7 +181,9 @@ def top_customers(pages: list[str]) -> dict | None:
     seen: dict[float, list[int]] = {}
     for i, text in enumerate(pages, 1):
         for m in _TOP10.finditer(text):
-            seen.setdefault(round(float(m.group(1)), 2), []).append(i)
+            where = seen.setdefault(round(float(m.group(1)), 2), [])
+            if i not in where:                  # printed twice = on two different pages
+                where.append(i)
     if not seen:
         return None
     value, where = max(seen.items(), key=lambda kv: (len(kv[1]), -kv[1][0]))

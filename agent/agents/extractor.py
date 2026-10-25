@@ -51,7 +51,7 @@ class Extractor(Agent):
         not_found = 0
         for f in facts_from(result) + [c for c in (top_customers(pages),) if c]:
             verified = f["verified"]
-            if verified and f["value"]:
+            if verified and f["value"] and f["unit"] == "cr":
                 # Citation check on the number itself: it must be printed on its page
                 # (or the next one, where a statement continues), in the RHP's unit.
                 text = "\n".join(pages[f["page"] - 1:f["page"] + 1])
