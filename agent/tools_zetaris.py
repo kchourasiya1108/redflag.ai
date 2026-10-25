@@ -145,7 +145,9 @@ class QueryResult:
 
     def __post_init__(self) -> None:
         if not self.sha256:
-            canon = json.dumps(self.rows, default=str, sort_keys=True)
+            # Order-independent: the same rows from Zetaris or the stand-in hash alike.
+            canon = json.dumps(sorted(json.dumps(r, default=str, sort_keys=True)
+                                      for r in self.rows))
             self.sha256 = hashlib.sha256(canon.encode()).hexdigest()[:16]
 
     @property

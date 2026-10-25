@@ -31,6 +31,7 @@ banker_track_record:
     JOIN RF_ARCHIVE.labels l ON l.ipo_id = ib.ipo_id
     WHERE ib.banker_id = :banker_id
       AND l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
 
 outcomes_known_before:
   time_rule: {column: outcome_known_on, op: "<"}
@@ -43,6 +44,7 @@ outcomes_known_before:
            l.sebi_action_date, l.outcome_known_on
     FROM RF_ARCHIVE.labels l
     WHERE l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
 
 labelled_ipos:
   time_free: true      # offline training only: the list of IPOs to backtest
@@ -88,6 +90,7 @@ ipo_parties:
     FROM RF_ARCHIVE.ipos i
     JOIN RF_ARCHIVE.registrars r ON r.registrar_id = i.registrar_id
     WHERE i.ipo_id = :ipo_id
+    ORDER BY role, party_id
 
 sebi_named_before:
   # Every entity named in a SEBI order dated before as_of: the archive's
@@ -110,6 +113,7 @@ sebi_named_before:
     FROM RF_LIVE.sebi_order_entity e
     JOIN RF_LIVE.sebi_orders o ON o.order_id = e.order_id
     WHERE o.order_date < :as_of
+    ORDER BY 2, 1, 6          -- order_date, order_id, entity_name (by position: a UNION)
 
 banker_past_ipos:
   # The banker's earlier issues that had opened before as_of: the second hop
@@ -124,6 +128,7 @@ banker_past_ipos:
     JOIN RF_ARCHIVE.ipos i ON i.ipo_id = ib.ipo_id
     WHERE ib.banker_id = :banker_id
       AND i.open_date < :as_of
+    ORDER BY i.open_date, i.ipo_id
 
 entity_edges_before:
   # Director/promoter/group links taken from past RHPs, valid before as_of.
@@ -135,6 +140,7 @@ entity_edges_before:
     SELECT src_id, dst_id, type, source_ref, valid_from
     FROM RF_ARCHIVE.entity_edge
     WHERE valid_from < :as_of
+    ORDER BY src_id, dst_id, type
 
 ipo_facts:
   time_free: true      # numbers printed in the IPO's own RHP, published before as_of
@@ -146,6 +152,7 @@ ipo_facts:
     SELECT field, fiscal_year, value, unit, page, verified, method
     FROM RF_ARCHIVE.facts
     WHERE ipo_id = :ipo_id
+    ORDER BY field, fiscal_year
 
 ipo_rhp_doc:
   time_free: true      # the RHP is published before the bid opens
@@ -181,3 +188,4 @@ auditor_track_record:
     JOIN RF_ARCHIVE.labels l ON l.ipo_id = ia.ipo_id
     WHERE ia.auditor_id = :auditor_id
       AND l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
