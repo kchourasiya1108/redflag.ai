@@ -200,6 +200,8 @@ class Gateway:
         result = self._lookup(key)
         if result is None:
             result = self._call(prompt, system, schema, route, max_tokens, key, images, model)
+        elif self.record_replay and result.cached:
+            self._store(key, result)        # a recording must include replies served from cache
         if schema is not None and result.parsed is None:
             result.parsed = parse_structured(result.text, schema)
         self._trace(purpose, result)

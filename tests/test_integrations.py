@@ -351,3 +351,11 @@ def test_gateway_never_starts_a_call_after_the_run_deadline(tmp_path):
     with pytest.raises(BudgetExceeded):
         gw.generate("hi", purpose="t")
     assert seen == []
+
+
+def test_recording_copies_cached_replies_into_the_replay_set(tmp_path):
+    gw = _gateway(tmp_path, [_provider("meterless", ["first"])])
+    gw.generate("hi", purpose="t")                       # cached, not recorded
+    rec = _gateway(tmp_path, [_provider("meterless", [])], record_replay=True)
+    rec.generate("hi", purpose="t")                      # served from cache
+    assert len(list((tmp_path / "replay").glob("*.json"))) >= 1
