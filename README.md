@@ -119,8 +119,14 @@ curl -s -X POST localhost:8000/run -H 'content-type: application/json' \
 .venv/bin/python run.py investigate NSE-2023-SYNOPTICS [--sample]   # same, from the CLI
 ```
 
-A live run takes about 5 minutes, because Nemotron calls take 13–30 s
-each. Sample mode takes about a second.
+A live run takes about 4 to 6 minutes, because Nemotron calls take
+13–30 s each and Nightshift sometimes returns `502 Load failed`. Sample
+mode takes about 0.6 s.
+
+Zetaris runs on a second machine. If it is unreachable, the Zetaris client
+retries with back-off (never past the run's time limit), then the run
+returns a recoverable `DataSourceUnavailable` error (HTTP 503 from
+`POST /run`).
 
 Each run writes:
 - `logs/trace-<run_id>.jsonl`, with every agent step, transition, Zetaris
@@ -150,6 +156,6 @@ See [docs/DESIGN.md](docs/DESIGN.md#backtest-results) for the details.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q              # 128 tests, no network
+.venv/bin/python -m pytest -q              # 145 tests, no network
 .venv/bin/python smoke_test.py --full      # live: Zetaris + Meterless
 ```
