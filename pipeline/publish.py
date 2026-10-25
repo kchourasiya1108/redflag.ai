@@ -136,7 +136,8 @@ def build_sample(ctx: StageContext) -> int:
                    "(SELECT banker_id FROM src.ipo_banker WHERE ipo_id IN (SELECT ipo_id FROM keep))",
         "banker_alias": "SELECT * FROM src.banker_alias WHERE banker_id IN "
                         "(SELECT banker_id FROM src.ipo_banker WHERE ipo_id IN (SELECT ipo_id FROM keep))",
-        "labels": "SELECT * FROM src.labels WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        # Every label: the overall base rate (banker shrinkage) must match a live run.
+        "labels": "SELECT * FROM src.labels",
         "trading_days": "SELECT * FROM src.trading_days",
         "prices": "SELECT * FROM src.prices WHERE symbol IN "
                   "(SELECT symbol FROM src.ipos WHERE ipo_id IN (SELECT ipo_id FROM keep))",

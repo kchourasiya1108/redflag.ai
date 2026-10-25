@@ -24,9 +24,10 @@ class BankerTrackRecord(Agent):
         rate, n, base = feats["f_banker_crash"], feats["f_banker_n"], feats["base_rate"]
         evidence = ctx.refs("banker_track_record")
         if rate is None:
-            ctx.case.add_not_checked("F10 banker track record", "no lead manager in the archive",
-                                     agent=self.name)
-            return AgentResult("no lead manager found", target="Watchlist")
+            why = ("no lead manager in the archive" if base is not None else
+                   f"no SME IPO outcome was known before {ctx.as_of} to compare against")
+            ctx.case.add_not_checked("F10 banker track record", why, agent=self.name)
+            return AgentResult(why, target="Watchlist")
         thin = feats["f_banker_low_history"]
         severity = f10_severity(rate)
         if thin and severity == "LOW":

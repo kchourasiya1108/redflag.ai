@@ -92,9 +92,9 @@ def model_review(conn, conn_factory, gateway, cache: Path, *, workers: int = 3,
     rows = [dict(r) for r in conn.execute(
         """SELECT e.order_id, e.entity_name, e.entity_role, e.entity_id, o.order_date, o.title
            FROM sebi_order_entity e JOIN sebi_orders o USING (order_id)
-           WHERE e.reviewed = 0 ORDER BY o.order_date""")]
+           WHERE e.reviewed = 0 AND e.reviewer IS NULL ORDER BY o.order_date""")]
     rows = rows[:limit] if limit else rows
-    done = {"confirmed": 0, "rejected": 0, "failed": 0}
+    done = {"confirmed": 0, "rejected": 0, "unresolved": 0, "failed": 0}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(review_one, gateway, conn_factory, cache, r) for r in rows]
         for fut in as_completed(futures):
@@ -105,15 +105,19 @@ def model_review(conn, conn_factory, gateway, cache: Path, *, workers: int = 3,
                 log(f"FAIL {e}"[:200])
                 continue
             ok = verdict.same_entity and verdict.role_in_order in ("noticee", "subject")
+            # "not_found" means the model could not tell (a scanned order): leave the
+            # row pending rather than drop a possibly real link for good.
+            label = 1 if ok else 0 if verdict.role_in_order == "not_found" else -1
             conn.execute(
                 """UPDATE sebi_order_entity SET reviewed = ?, finding = ?, action = ?,
                    reviewer = ?, review_reason = ? WHERE order_id = ? AND entity_name = ?
                    AND entity_role = ?""",
-                (1 if ok else -1, verdict.finding or None, verdict.action or None,
+                (label, verdict.finding or None, verdict.action or None,
                  f"nemotron:{model}", f"{verdict.role_in_order}: {verdict.reason}"[:500],
                  row["order_id"], row["entity_name"], row["entity_role"]))
             conn.commit()
-            done["confirmed" if ok else "rejected"] += 1
-            log(f"{'ok ' if ok else 'no '} {row['order_id']} {row['entity_name'][:40]}: "
+            done["confirmed" if ok else "unresolved" if label == 0 else "rejected"] += 1
+            log(f"{'ok ' if ok else '?? ' if label == 0 else 'no '} {row['order_id']} "
+                f"{row['entity_name'][:40]}: "
                 f"{verdict.role_in_order}; {verdict.reason[:90]}")
     return done

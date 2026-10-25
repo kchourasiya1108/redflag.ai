@@ -29,9 +29,14 @@ def score(features: dict, scorer: dict) -> Score:
     if missing:
         return Score(INSUFFICIENT, None, scorer["version"], missing)
     x = []
+    transform = scorer.get("transform", {})
     for f in scorer["features"]:
         v = features.get(f)
-        x += [scorer["fill"][f] if v is None else float(v), float(v is None)]
+        value = scorer["fill"][f] if v is None else float(v)
+        t = transform.get(f)
+        if t:                       # the training stage's clip + standardisation
+            value = (min(max(value, t["clip"][0]), t["clip"][1]) - t["mean"]) / t["sd"]
+        x += [value, float(v is None)]
     z = scorer["intercept"] + sum(w * xi for w, xi in zip(scorer["coef"], x))
     p = 1 / (1 + math.exp(-z))
     b = scorer["bands"]

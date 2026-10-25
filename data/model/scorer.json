@@ -1,9 +1,18 @@
 {
-  "version": "v0-banker",
+  "version": "v2-banker-watchlist-rhp",
   "features": [
     "f_banker_crash",
     "f_banker_low_history",
-    "f_banker_median_ret"
+    "f_banker_median_ret",
+    "f_watchlist_hit",
+    "f_watchlist_hop1",
+    "f_cfo_pat",
+    "f_cfo_neg_pat_pos",
+    "f_recv_rev_gap",
+    "f_profit_spike",
+    "f_ebitda_headroom_min",
+    "f_other_income_share",
+    "f_rev_growth"
   ],
   "columns": [
     "f_banker_crash",
@@ -11,27 +20,170 @@
     "f_banker_low_history",
     "f_banker_low_history__missing",
     "f_banker_median_ret",
-    "f_banker_median_ret__missing"
+    "f_banker_median_ret__missing",
+    "f_watchlist_hit",
+    "f_watchlist_hit__missing",
+    "f_watchlist_hop1",
+    "f_watchlist_hop1__missing",
+    "f_cfo_pat",
+    "f_cfo_pat__missing",
+    "f_cfo_neg_pat_pos",
+    "f_cfo_neg_pat_pos__missing",
+    "f_recv_rev_gap",
+    "f_recv_rev_gap__missing",
+    "f_profit_spike",
+    "f_profit_spike__missing",
+    "f_ebitda_headroom_min",
+    "f_ebitda_headroom_min__missing",
+    "f_other_income_share",
+    "f_other_income_share__missing",
+    "f_rev_growth",
+    "f_rev_growth__missing"
   ],
   "coef": [
-    0.129296,
-    -0.619545,
-    0.221896,
-    0.267296,
-    -0.658391,
-    -0.262898
+    0.16001,
+    -0.351958,
+    0.134586,
+    0.141475,
+    -0.503351,
+    0.159165,
+    0.664245,
+    0.0,
+    -0.069334,
+    0.0,
+    -0.016452,
+    0.121105,
+    -0.110796,
+    0.058891,
+    -0.24382,
+    0.140286,
+    -0.382601,
+    -0.241173,
+    -0.536863,
+    0.348106,
+    -0.122376,
+    -0.416651,
+    -0.458359,
+    -0.017295
   ],
-  "intercept": -1.755243,
+  "intercept": -2.701578,
   "fill": {
     "f_banker_crash": 0.03484362859362859,
     "f_banker_low_history": 1.0,
-    "f_banker_median_ret": 0.603846
+    "f_banker_median_ret": 0.603846,
+    "f_watchlist_hit": 0.0,
+    "f_watchlist_hop1": 0.0,
+    "f_cfo_pat": 0.5697754210854648,
+    "f_cfo_neg_pat_pos": 0.0,
+    "f_recv_rev_gap": -0.08762447124956763,
+    "f_profit_spike": 2.3629512098373664,
+    "f_ebitda_headroom_min": 0.44275,
+    "f_other_income_share": 0.06169213048003194,
+    "f_rev_growth": 0.2348681247785902
+  },
+  "transform": {
+    "f_banker_crash": {
+      "clip": [
+        0.0,
+        0.2618938512365739
+      ],
+      "mean": 0.05008876805135393,
+      "sd": 0.05034742094843631
+    },
+    "f_banker_low_history": {
+      "clip": [
+        0.0,
+        1.0
+      ],
+      "mean": 0.6994535519125683,
+      "sd": 0.45849567133121377
+    },
+    "f_banker_median_ret": {
+      "clip": [
+        -0.217658115,
+        2.422289
+      ],
+      "mean": 0.8028866470945947,
+      "sd": 0.7314533521219773
+    },
+    "f_watchlist_hit": {
+      "clip": [
+        0.0,
+        1.0
+      ],
+      "mean": 0.4,
+      "sd": 0.48989794855663565
+    },
+    "f_watchlist_hop1": {
+      "clip": [
+        0.0,
+        6.0
+      ],
+      "mean": 1.0794871794871794,
+      "sd": 1.6645134019347065
+    },
+    "f_cfo_pat": {
+      "clip": [
+        -49.10281936396822,
+        1103.0564007421192
+      ],
+      "mean": 44.10151604792171,
+      "sd": 185.7285624745588
+    },
+    "f_cfo_neg_pat_pos": {
+      "clip": [
+        0.0,
+        1.0
+      ],
+      "mean": 0.313953488372093,
+      "sd": 0.4640977219412816
+    },
+    "f_recv_rev_gap": {
+      "clip": [
+        -7.762986560010153,
+        8.611890228615966
+      ],
+      "mean": 0.09948231303027076,
+      "sd": 1.9265094171728177
+    },
+    "f_profit_spike": {
+      "clip": [
+        0.0011667286555281592,
+        86.37788982838886
+      ],
+      "mean": 5.244621305048218,
+      "sd": 11.7783387302748
+    },
+    "f_ebitda_headroom_min": {
+      "clip": [
+        -3.5399829999999994,
+        15.468762000000009
+      ],
+      "mean": 2.028440877777778,
+      "sd": 4.127576367373937
+    },
+    "f_other_income_share": {
+      "clip": [
+        -0.21537122207621542,
+        1.7214877976916918
+      ],
+      "mean": 0.17268095203984113,
+      "sd": 0.30769494757851346
+    },
+    "f_rev_growth": {
+      "clip": [
+        -0.9968288703857366,
+        70.98839045633444
+      ],
+      "mean": 1.2134969921289873,
+      "sd": 7.605360772283223
+    }
   },
   "bands": {
-    "low_below": 0.0974,
-    "high_at": 0.1949
+    "low_below": 0.1154,
+    "high_at": 0.2308
   },
-  "calibration": "logistic (Platt); refit in v2",
+  "calibration": "logistic (Platt) on standardised features",
   "trained_on": {
     "train": 390,
     "test": 205,

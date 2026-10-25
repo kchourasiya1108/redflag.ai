@@ -96,3 +96,10 @@ class Tiny(BaseModel):
 def test_structured_reply_after_inline_reasoning():
     text = 'The user wants {a summary}. Let me think about {"x": 1} ... Final: {"ruling": "upheld"}'
     assert parse_structured(text, Tiny).ruling == "upheld"
+
+
+def test_summary_numbers_must_match_exactly():
+    out = {"rating": "LOW", "p_adverse": 0.12, "reasons": [{"text": "value 17.53"}],
+           "skeptic_notes": [], "cleared_checks": [], "questions": [], "not_checked": []}
+    assert plain_summary(FakeGateway([{"summary": "Profit rose 7.5x."}]), out) is None
+    assert plain_summary(FakeGateway([{"summary": "A 12% chance; 17.53 recorded."}]), out)

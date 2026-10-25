@@ -69,10 +69,22 @@ def plain_summary(gateway, out: dict) -> str | None:
                                 ).parsed.summary.strip()
     except Exception:
         return None
-    numbers = re.findall(r"\d+(?:\.\d+)?", text)
-    if _BANNED.search(text) or any(n not in evidence for n in numbers):
+    if _BANNED.search(text) or not set(re.findall(r"\d+(?:\.\d+)?", text)) <= allowed_numbers(out):
         return None
     return text
+
+
+def allowed_numbers(out: dict) -> set[str]:
+    """Every number in the evidence as written, plus its usual roundings and, for
+    probabilities and shares, as a percentage."""
+    blob = json.dumps(out, default=str)
+    allowed = set()
+    for token in re.findall(r"-?\d+(?:\.\d+)?", blob):
+        v = abs(float(token))
+        allowed |= {token.lstrip("-"), f"{v:.2f}", f"{v:.1f}", f"{v:.0f}"}
+        if v < 1:
+            allowed |= {f"{v * 100:.0f}", f"{v * 100:.1f}"}
+    return {a.rstrip("0").rstrip(".") if "." in a else a for a in allowed} | allowed
 
 
 def render_markdown(out: dict) -> str:

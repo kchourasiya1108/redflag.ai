@@ -61,3 +61,16 @@ def test_capital_history_is_read_window_by_window_with_carryover(tmp_path):
     assert [r["issue_price"] for r in res.data["rows"][:2]] == [20, 40]
     assert "[CARRYOVER STATE]" in fake.prompts[1] and "unit Rs" in fake.prompts[1]
     assert res.run.status == "completed" and (tmp_path / "m.jsonl").exists()
+
+
+def test_review_fixes_missing_price_total_rows_and_braces():
+    from agent.narrative import _rows_from
+    rows = [{"date": "2024-09-01", "shares": 100, "issue_price": None, "nature": "share swap"}]
+    s = insider_discount(rows, 100.0, AS_OF)
+    assert not s["bonus_in_window"] and s["recent_allotments"] == 0
+    data = {"unit": "lakh", "rows": [{"object": "Working capital", "kind": "working_capital",
+                                      "amount": 600}, {"object": "GCP", "kind": "gcp", "amount": 100},
+                                     {"object": "Total", "kind": "other", "amount": 700}]}
+    assert objects_summary(data)["gross_cr"] == 7.0
+    reply = 'I see {unit} in lakh here... {"rows": [{"date": "2024-01-01"}]}\n[STATE_CHECKPOINT]'
+    assert _rows_from(reply)["rows"] == [{"date": "2024-01-01"}]

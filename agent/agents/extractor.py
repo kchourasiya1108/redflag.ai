@@ -8,6 +8,7 @@ but marked unverified, so they are reported and never scored.
 from __future__ import annotations
 
 from agent.agents.base import Agent, AgentResult, RunContext
+from agent.agents.citations import value_on_page
 from agent.extract import extract_financials, facts_from
 from agent.rhp import load_pages
 from agent.specialists import CaseFileFacts
@@ -43,11 +44,22 @@ class Extractor(Agent):
             ctx.tracer.event(self.name, "extract_attempt",
                              f"{kind} via {method}: verified {best.verified_periods or 'none'}",
                              retry_count=best.attempts - 1, detail_msg=best.detail[:160])
+        ctx.scratch["gaps"] = []        # this pass's gaps only
         result = extract_financials(pages, gateway=ctx.gateway if not ctx.sample_mode else None,
                                     label=ctx.ipo_id, on_attempt=attempt)
+        not_found = 0
         for f in facts_from(result):
+            verified = f["verified"]
+            if verified and f["value"]:
+                # Citation check on the number itself: it must be printed on its page
+                # (or the next one, where a statement continues), in the RHP's unit.
+                text = "\n".join(pages[f["page"] - 1:f["page"] + 1])
+                if not value_on_page(f["value"], text):
+                    verified, not_found = False, not_found + 1
             ctx.case.add_fact(f["field"], f["fiscal_year"], f["value"], unit="cr", page=f["page"],
-                              verified=f["verified"], method=f["method"], agent=self.name)
+                              verified=verified, method=f["method"]
+                              + ("" if verified == f["verified"] else ":not_on_page"),
+                              agent=self.name)
         for kind, x in result.items():
             for c in x.checks:
                 ctx.case.set_verification(kind, c.period, passed=c.passed, attempts=x.attempts,
@@ -60,10 +72,11 @@ class Extractor(Agent):
         ctx.scratch["facts"] = CaseFileFacts(ctx.case)
         # Only a model outage is a gap worth re-planning for; a table that does
         # not verify will not verify on a second identical pass.
-        outages = [k for k, x in result.items() if "GatewayError" in x.detail]
-        if outages:
-            ctx.scratch["gaps"] = ctx.scratch.get("gaps", []) + [
-                f"restated {k.upper()} (model unavailable)" for k in outages]
+        outages = [k for k, x in result.items()
+                   if not x.verified_periods and "GatewayError" in x.detail]
+        ctx.scratch["gaps"] = [f"restated {k.upper()} (model unavailable)" for k in outages]
         ok = {k: len(x.verified_periods) for k, x in result.items()}
-        return AgentResult(f"verified periods per statement: {ok}", target="Specialists",
+        return AgentResult(f"verified periods per statement: {ok}"
+                           + (f"; {not_found} value(s) not found on their page, unverified"
+                              if not_found else ""), target="Specialists",
                            data={"methods": {k: x.method for k, x in result.items()}})

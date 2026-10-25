@@ -8,7 +8,7 @@
     python run.py sebi-review import       # read the reviewed CSV back
     python run.py explain-label NSE-2024-X # show how one label was computed
     python run.py zetaris render|load-pg|register|check   # Zetaris setup
-    python run.py investigate NSE-2023-SYNOPTICS  # one run, JSON to stdout
+    python run.py investigate NSE-2023-SYNOPTICS [--sample]  # one run, JSON to stdout
     python run.py serve                    # FastAPI on 0.0.0.0:$PORT
 """
 from __future__ import annotations
@@ -30,6 +30,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("stages", nargs="+",
                         help=f"'all', 'check', or any of: {', '.join(STAGES)}")
     parser.add_argument("--limit", type=int, help="process at most N rows")
+    parser.add_argument("--sample", action="store_true",
+                        help="investigate in sample mode (no network, recorded replies)")
     args = parser.parse_args(argv)
     cfg = settings()
     conn = connect(cfg.archive_db)
@@ -55,7 +57,8 @@ def main(argv: list[str]) -> int:
     if args.stages[0] == "investigate":
         import json
         from agent.main import investigate
-        print(json.dumps(investigate(cfg, args.stages[1]), indent=2, default=str))
+        print(json.dumps(investigate(cfg, args.stages[1], sample_mode=True if args.sample else None),
+                         indent=2, default=str))
         return 0
 
     if args.stages[0] == "serve":

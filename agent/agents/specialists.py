@@ -23,7 +23,7 @@ class Specialists(Agent):
                                          agent=self.name)
                 continue
             ctx.case.add_flag(finding.flag, finding.severity, value=finding.value,
-                              evidence=[f"rhp:p{p}" for p in finding.pages] or ["rhp"],
+                              evidence=[f"rhp:p{p}" for p in finding.pages],
                               confidence=0.7, agent=self.name, text=finding.text)
             raised.append(f"{finding.flag}={finding.severity}")
         return AgentResult(", ".join(raised) or "no flags computable", target="Planner")

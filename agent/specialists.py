@@ -170,8 +170,8 @@ def f3_eligibility(f: FactSource) -> Finding | None:
     text = ("EBITDA by year: " + ", ".join(f"{y} ₹{v:.2f} cr" for y, v in known.items())
             + (f"; within ₹{HEADROOM_BAND_CR} cr above the ₹1 cr eligibility floor in "
                f"{', '.join(near)}" if near else "; not clustered at the ₹1 cr floor") + ".")
-    return Finding("F3", sev, {"ebitda": known, "near_floor_years": near}, text,
-                   [p for p in (f.page("pl.pbt", ys[0]),) if p])
+    pages = sorted({p for y in known for p in (f.page("pl.pbt", y),) if p})
+    return Finding("F3", sev, {"ebitda": known, "near_floor_years": near}, text, pages)
 
 
 SPECIALISTS = (f1_paper_profits, f2_profit_spike, f3_eligibility)

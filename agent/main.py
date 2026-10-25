@@ -38,11 +38,13 @@ __all__ = ["investigate", "RunError", "DISCLAIMER", "Orchestrator"]
 TARGET_S, HARD_LIMIT_S = 180, 600
 
 # The order of a run. "Escalation" is the Planner's second look after the
-# specialists: a mid-run escalation (two HIGH flags, a >= 5x insider discount)
-# is recorded there. Missing agents are skipped.
+# specialists (two HIGH flags), before the narrative sections are read, so an
+# escalation can still widen what is read; "Escalation2" looks again after the
+# narrative (a >= 5x insider discount). Citations are re-checked before the
+# Skeptic's corroboration rule and the score. Missing agents are skipped.
 PIPELINE = ["Intake", "Names", "BankerTrackRecord", "Watchlist", "Planner",
-            "Extractor", "Specialists", "NarrativeReader", "Escalation", "Skeptic", "Scorer",
-            "Evaluator", "CitationVerifier", "Reporter"]
+            "Extractor", "Specialists", "Escalation", "NarrativeReader", "Escalation2",
+            "CitationVerifier", "Skeptic", "Scorer", "Evaluator", "Reporter"]
 
 
 class RunError(RuntimeError):
@@ -88,8 +90,8 @@ class Orchestrator:
                             Extractor(), Specialists(), NarrativeReader(), Skeptic(), Scorer(),
                             Evaluator(), CitationVerifier(), Reporter()]
         self.agents = {a.name: a for a in agents}
-        if "Planner" in self.agents:
-            self.agents["Escalation"] = self.agents["Planner"]
+        if "Planner" in self.agents:    # the Planner's second and third looks
+            self.agents["Escalation"] = self.agents["Escalation2"] = self.agents["Planner"]
 
     def next_state(self, current: str, result: AgentResult, ctx: RunContext) -> str | None:
         if current == "Reporter":
@@ -135,6 +137,7 @@ class Orchestrator:
 
 def _action(state: str) -> str:
     return {"Intake": "start", "Planner": "plan", "Escalation": "escalation_check",
+            "Escalation2": "escalation_check",
             "Scorer": "score", "Evaluator": "evaluate",
             "Reporter": "final_synthesis"}.get(state, "delegate_task")
 

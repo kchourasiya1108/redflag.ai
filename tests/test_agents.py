@@ -81,6 +81,7 @@ def test_watchlist_matches_typos_but_only_reviewed_rows_confirm(tmp_path):
     with sqlite3.connect(db) as conn:
         name, order = conn.execute("SELECT entity_name, order_id FROM sebi_order_entity "
                                    "WHERE length(entity_name) > 20 LIMIT 1").fetchone()
+        conn.execute("UPDATE sebi_order_entity SET reviewed = 0")       # start unreviewed
     typo = name[:5] + name[6:]                              # one letter dropped
     named = [Named("person", typo)]
     as_of = date(2030, 1, 1)
@@ -146,3 +147,19 @@ def test_data_port_sends_each_query_once_per_run():
     a = port.run("ipo_bankers", ipo_id=DEMO)
     b = port.run("ipo_bankers", ipo_id=DEMO)
     assert a is b and len(seen) == 1
+
+
+def test_post_run_returns_the_execution_contract(sample_cfg, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as api
+    monkeypatch.setattr(api, "settings", lambda: sample_cfg)
+    resp = TestClient(api.app).post("/run", json={"run_id": "run-api", "input": {"ipo_id": DEMO},
+                                                  "options": {"sample_mode": True}})
+    body = resp.json()
+    assert resp.status_code == 200 and body["run_id"] == "run-api" and body["status"] == "success"
+    assert {"run_id", "status", "output", "agents", "trace_id", "log_file",
+            "execution_time_seconds"} <= set(body)
+    out = body["output"]
+    assert {"rating", "p_adverse", "reasons", "skeptic_notes", "cleared_checks", "questions",
+            "not_checked", "disclaimer"} <= set(out)
+    assert any(a["name"] == "NarrativeReader" and a["uses_llm"] for a in body["agents"])

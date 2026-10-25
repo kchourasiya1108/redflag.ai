@@ -73,13 +73,21 @@ def section_windows(pages: list[str], section: Section) -> list[tuple[int, str]]
 
 
 def _rows_from(content: str) -> dict:
-    m = re.search(r"\{[\s\S]*\}", content)
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group())
-    except ValueError:
-        return {}
+    """The chunk's JSON object, even after reasoning text that contains braces."""
+    from agent.llm import _last_json
+    text = content
+    for _ in range(20):                 # step back past markers such as [STATE_CHECKPOINT]
+        candidate = _last_json(text)
+        if candidate is None:
+            break
+        try:
+            value = json.loads(candidate)
+        except ValueError:
+            value = None
+        if isinstance(value, dict):
+            return value
+        text = text[:text.rfind(candidate)]
+    return {}
 
 
 @dataclass
@@ -144,9 +152,9 @@ def insider_discount(rows: list[dict], issue_price: float, as_of: date) -> dict:
         if d is None or shares is None or not (start <= d < as_of):
             continue
         if str(r.get("consideration", "")).lower() == "bonus" or "bonus" in str(
-                r.get("nature", "")).lower() or not price:
+                r.get("nature", "")).lower():
             bonus.append(r)
-        else:
+        elif price:                     # a missing price (a swap, "N.A.") is not evidence
             recent.append((shares, price, r))
     out = {"recent_allotments": len(recent), "bonus_in_window": bool(bonus), "window_start":
            start.isoformat(), "pages": sorted({int(_num(r.get("page")) or 0) for *_, r in recent
@@ -166,6 +174,8 @@ def objects_summary(data: dict) -> dict:
         return {"error": "unit not stated"}
     by_kind: dict[str, float] = {}
     for r in data.get("rows", []):
+        if re.search(r"(?i)\b(?:total|net\s+proceeds|gross\s+proceeds)\b", str(r.get("object", ""))):
+            continue                    # a total row would double the base
         amount = _num(r.get("amount"))
         if amount is not None:
             by_kind[r.get("kind", "other")] = by_kind.get(r.get("kind", "other"), 0.0) + amount * factor

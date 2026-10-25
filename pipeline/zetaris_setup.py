@@ -71,6 +71,8 @@ def statements(env: dict[str, str] | None = None) -> list[Statement]:
                               "jdbcurl": pg_jdbc_url(env, db),
                               **creds, "fetchsize": "1000"}))
             out.append(_stmt(f"REGISTER DATASOURCE TABLES FROM {source}"))
+            # Pick up columns added to tables that were already registered.
+            out.append(_stmt(f"REFRESH DATASOURCE TABLES FROM {source}"))
     elif route == "files":
         base = _need(env, "RF_FILES_BASE").rstrip("/")
         out.append(_stmt('CREATE LIGHTNING DATABASE RF_ARCHIVE DESCRIBE BY "RedFlag-archive"'))
