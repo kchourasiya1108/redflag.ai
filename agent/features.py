@@ -6,10 +6,12 @@ that differs between a backtest and a live run is where RHP facts come from
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from statistics import median
 from typing import Protocol
 
+from agent.engines.world import decide, name_similarity
 from agent.tools_zetaris import DataPort
 
 SHRINK_K = 5            # pseudo-IPOs pulling a thin track record to the overall rate
@@ -61,10 +63,132 @@ def banker_features(data: DataPort, ipo_id: str, as_of: date) -> dict[str, float
     return worst | {"base_rate": base_rate}
 
 
+@dataclass
+class Named:
+    """Someone involved in the IPO, as the watchlist sees them."""
+    role: str                   # banker | auditor | market_maker | registrar | company | person
+    name: str
+    entity_id: str | None = None    # archive id (ent:banker:<id>, ent:company:<ipo_id>)
+    source: str = ""
+
+
+@dataclass
+class Link:
+    """One path from a named party to a SEBI order dated before as_of."""
+    named: Named
+    order: dict
+    hop: int                    # 1 = named directly; 2 = through one other entity
+    similarity: float
+    via: str = ""               # the intermediate entity on a 2-hop path
+    status: str = "pending"     # confirmed | pending (awaiting human review) | near_match
+
+    @property
+    def confirmed(self) -> bool:
+        return self.status == "confirmed"
+
+
+def archive_parties(data: DataPort, ipo_id: str, company: str) -> list[Named]:
+    """Everyone the archive names for this IPO: the issuer, lead managers,
+    auditor, market maker and registrar (all printed in the RHP)."""
+    named = [Named("company", company, f"ent:company:{ipo_id}", "archive:ipos")]
+    named += [Named("banker", b["canonical_name"], f"ent:banker:{b['banker_id']}",
+                    "archive:ipo_banker") for b in data.run("ipo_bankers", ipo_id=ipo_id).rows]
+    named += [Named(p["role"], p["canonical_name"], None, f"archive:{p['role']}")
+              for p in data.run("ipo_parties", ipo_id=ipo_id).rows]
+    return named
+
+
+def watchlist_links(data: DataPort, ipo_id: str, as_of: date,
+                    named: list[Named]) -> list[Link]:
+    """Paths from `named` to SEBI orders dated before as_of, within 2 hops.
+
+    Hop 1: the party itself is named in an order (same archive id, or a name
+    match at similarity >= 0.85; 0.82-0.85 is a near match, never a flag).
+    Hop 2: a lead manager's earlier issue (opened before as_of) was named.
+    A link is `confirmed` only when a person has reviewed that order row
+    (reviewed = 1); rows marked -1 are dropped, unreviewed rows stay pending.
+    """
+    orders = [o for o in data.run("sebi_named_before", as_of=as_of).rows if o["reviewed"] != -1]
+
+    def status(order: dict, verdict: str) -> str:
+        if verdict == "review":
+            return "near_match"
+        return "confirmed" if order["reviewed"] == 1 else "pending"
+
+    links: dict[tuple, Link] = {}
+
+    def add(link: Link) -> None:        # one link per (party, order, hop)
+        links.setdefault((link.named.role, link.named.name, link.order["order_id"], link.hop), link)
+
+    for n in named:
+        for o in orders:
+            if n.entity_id and o["entity_id"]:
+                if n.entity_id == o["entity_id"]:   # both archived: only the ids decide
+                    add(Link(n, o, 1, 1.0, status=status(o, "auto-merge")))
+                continue
+            if not _roles_compatible(n.role, o["entity_role"]):
+                continue
+            if not _could_match(n.name, o["entity_name"]):
+                continue
+            sim = name_similarity(n.name, o["entity_name"])
+            verdict = decide(sim)
+            if verdict != "new":
+                add(Link(n, o, 1, round(sim, 3), status=status(o, verdict)))
+    by_company = {}
+    for o in orders:
+        if o["entity_role"] == "company" and o["entity_id"]:
+            by_company.setdefault(o["entity_id"], []).append(o)
+    for n in named:
+        if n.role != "banker" or not n.entity_id:
+            continue
+        banker_id = int(n.entity_id.rsplit(":", 1)[1])
+        for past in data.run("banker_past_ipos", banker_id=banker_id, as_of=as_of).rows:
+            if past["ipo_id"] == ipo_id:
+                continue
+            for o in by_company.get(f"ent:company:{past['ipo_id']}", []):
+                add(Link(n, o, 2, 1.0, via=f"{past['company']} ({past['ipo_id']})",
+                         status=status(o, "auto-merge")))
+    return list(links.values())
+
+
+# An order's banker row can only be a banker; its company row only an issuer.
+# People and other firms may appear under any role.
+_STRICT_ROLES = {"banker": {"banker"}, "company": {"company"}}
+
+
+def _roles_compatible(party_role: str, order_role: str) -> bool:
+    allowed = _STRICT_ROLES.get(party_role)
+    return allowed is None or order_role in allowed
+
+
+def _could_match(a: str, b: str, lower: float = 0.82) -> bool:
+    """Cheap pre-filter: names whose lengths differ by more than the review
+    band allows can never reach similarity 0.82."""
+    la, lb = len(a.strip()), len(b.strip())
+    return min(la, lb) >= lower * max(la, lb, 1)
+
+
+def watchlist_features(links: list[Link]) -> dict[str, float]:
+    confirmed = [l for l in links if l.confirmed]
+    return {"f_watchlist_hit": float(bool(confirmed)),
+            "f_watchlist_hop1": float(sum(l.hop == 1 for l in confirmed)),
+            "f_watchlist_pending": float(sum(not l.confirmed for l in links))}
+
+
 def compute_features(ipo_id: str, as_of: date, data: DataPort,
-                     facts: FactSource | None = None) -> dict[str, float | None]:
+                     facts: FactSource | None = None, *,
+                     named: list[Named] | None = None) -> dict[str, float | None]:
+    """The single feature function for the backtest and the live run.
+
+    `named` defaults to the archive's parties for the IPO; a live run passes
+    the same list plus the people its Extractor read from the RHP.
+    """
     if data.as_of != as_of:
         raise ValueError("the Data Port must be bound to the same as_of")
     features = banker_features(data, ipo_id, as_of)
+    if named is None:
+        meta = data.run("ipo_meta", ipo_id=ipo_id).rows
+        named = archive_parties(data, ipo_id, meta[0]["company"] if meta else ipo_id)
+    features |= watchlist_features(watchlist_links(data, ipo_id, as_of, named))
     # RHP features (F1-F9) join here once extraction lands; they read `facts`.
     return features

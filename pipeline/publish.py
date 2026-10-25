@@ -25,7 +25,9 @@ from pipeline.base import Gate, StageContext
 
 TABLES = ["ipos", "bankers", "banker_alias", "ipo_banker", "trading_days", "prices",
           "corp_actions", "labels", "sebi_orders", "sebi_order_entity", "entities",
-          "entity_alias", "entity_edge", "docs", "facts", "features"]
+          "entity_alias", "entity_edge", "docs", "facts", "features",
+          "auditors", "auditor_alias", "ipo_auditor", "market_makers", "mm_alias",
+          "ipo_market_maker", "registrars", "registrar_alias"]
 PG_TYPES = {"INTEGER": "BIGINT", "REAL": "DOUBLE PRECISION", "TEXT": "TEXT", "": "TEXT"}
 # Postgres route: one database per Zetaris source (<db>_archive, <db>_live,
 # <db>_prices), tables in `public`, because Zetaris discovers only `public`.
@@ -145,6 +147,14 @@ def build_sample(ctx: StageContext) -> int:
         "sebi_orders": "SELECT * FROM src.sebi_orders",
         "sebi_order_entity": "SELECT * FROM src.sebi_order_entity",
         "features": "SELECT * FROM src.features WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        "ipo_auditor": "SELECT * FROM src.ipo_auditor WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        "ipo_market_maker": "SELECT * FROM src.ipo_market_maker WHERE ipo_id IN "
+                            "(SELECT ipo_id FROM keep)",
+        "facts": "SELECT * FROM src.facts WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        "entity_edge": "SELECT * FROM src.entity_edge",
+        "docs": "SELECT * FROM src.docs WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        **{t: f"SELECT * FROM src.{t}" for t in ("auditors", "auditor_alias", "market_makers",
+                                                 "mm_alias", "registrars", "registrar_alias")},
     }
     for table, select in copies.items():
         # Copy by column name: migrated columns may sit in a different order.

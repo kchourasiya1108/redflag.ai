@@ -27,26 +27,33 @@ from typing import Any, Protocol
 import httpx
 import yaml
 
-SOURCES = ("RF_ARCHIVE", "RF_LIVE", "RF_PRICES")
-
-
 class ZetarisError(RuntimeError):
     pass
 
 
-class MockZetaris:
-    """archive.db attached under every Zetaris source name.
+LIVE_TABLES = ("sebi_orders", "sebi_order_entity")
 
-    In the live layout RF_LIVE and RF_PRICES are separate sources; offline
-    they are all views of archive.db.
+
+class MockZetaris:
+    """archive.db attached as RF_ARCHIVE and RF_PRICES; RF_LIVE starts empty.
+
+    As in Zetaris, RF_LIVE holds only rows fresh fetchers found since the
+    archive was built (the live Postgres database; empty in sample mode), with
+    the archive's table shapes, so a template that UNIONs the archive with
+    RF_LIVE never counts an archived row twice.
     """
     name = "mock-sqlite"
 
     def __init__(self, archive: Path):
         self._conn = sqlite3.connect("file::memory:", uri=True, check_same_thread=False)
-        for source in SOURCES:
+        for source in ("RF_ARCHIVE", "RF_PRICES"):
             self._conn.execute(f"ATTACH DATABASE ? AS {source}",
                                (f"file:{archive.resolve()}?mode=ro",))
+        self._conn.execute("ATTACH DATABASE ':memory:' AS RF_LIVE")
+        for table in LIVE_TABLES:
+            self._conn.execute(f"CREATE TABLE RF_LIVE.{table} AS "
+                               f"SELECT * FROM RF_ARCHIVE.{table} WHERE 0")
+
 
     def query(self, sql: str, limit: int) -> tuple[list[str], list[list[Any]], float]:
         t0 = time.perf_counter()
@@ -179,8 +186,20 @@ class DataPort:
         self.offline = offline
         self.catalogue = catalogue or load_catalogue()
         self.on_query = on_query        # trace hook: called with each QueryResult
+        self._results: dict[tuple, QueryResult] = {}
 
     def run(self, template: str, **params) -> QueryResult:
+        """Run a named template. Identical calls on one port return the first
+        result: within one as_of the answer cannot change, so a run never
+        sends the same query twice or cites it twice."""
+        key = (template, tuple(sorted((k, str(v)) for k, v in params.items())))
+        if key in self._results:
+            return self._results[key]
+        result = self._run(template, params)
+        self._results[key] = result
+        return result
+
+    def _run(self, template: str, params: dict) -> QueryResult:
         t = self.catalogue.get(template)
         if t is None:
             raise KeyError(f"unknown template {template!r}")

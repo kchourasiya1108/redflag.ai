@@ -67,3 +67,71 @@ ipo_meta:
     SELECT ipo_id, company, symbol, exchange, open_date, issue_price, banker_raw, rhp_url
     FROM RF_ARCHIVE.ipos
     WHERE ipo_id = :ipo_id
+
+ipo_parties:
+  time_free: true      # auditor, market maker and registrar are printed in the RHP
+  params: {ipo_id: id}
+  columns: {role: str, party_id: int, canonical_name: str, raw_name: str}
+  max_rows: 20
+  sql: >
+    SELECT 'auditor' AS role, a.auditor_id AS party_id, a.canonical_name, ia.auditor_raw AS raw_name
+    FROM RF_ARCHIVE.ipo_auditor ia
+    JOIN RF_ARCHIVE.auditors a ON a.auditor_id = ia.auditor_id
+    WHERE ia.ipo_id = :ipo_id
+    UNION ALL
+    SELECT 'market_maker' AS role, m.mm_id AS party_id, m.canonical_name, m.canonical_name AS raw_name
+    FROM RF_ARCHIVE.ipo_market_maker im
+    JOIN RF_ARCHIVE.market_makers m ON m.mm_id = im.mm_id
+    WHERE im.ipo_id = :ipo_id
+    UNION ALL
+    SELECT 'registrar' AS role, r.registrar_id AS party_id, r.canonical_name, r.canonical_name AS raw_name
+    FROM RF_ARCHIVE.ipos i
+    JOIN RF_ARCHIVE.registrars r ON r.registrar_id = i.registrar_id
+    WHERE i.ipo_id = :ipo_id
+
+sebi_named_before:
+  # Every entity named in a SEBI order dated before as_of: the archive's
+  # orders plus RF_LIVE, where fresh fetchers put orders issued since the
+  # archive was built (empty until those fetchers run).
+  time_rule: {column: order_date, op: "<"}
+  params: {as_of: date}
+  columns: {order_id: str, order_date: date, order_type: str, title: str, url: str,
+            entity_name: str, entity_role: str, entity_id: str, reviewed: int}
+  max_rows: 20000
+  sql: >
+    SELECT o.order_id, o.order_date, o.order_type, o.title, o.url,
+           e.entity_name, e.entity_role, e.entity_id, e.reviewed
+    FROM RF_ARCHIVE.sebi_order_entity e
+    JOIN RF_ARCHIVE.sebi_orders o ON o.order_id = e.order_id
+    WHERE o.order_date < :as_of
+    UNION ALL
+    SELECT o.order_id, o.order_date, o.order_type, o.title, o.url,
+           e.entity_name, e.entity_role, e.entity_id, e.reviewed
+    FROM RF_LIVE.sebi_order_entity e
+    JOIN RF_LIVE.sebi_orders o ON o.order_id = e.order_id
+    WHERE o.order_date < :as_of
+
+banker_past_ipos:
+  # The banker's earlier issues that had opened before as_of: the second hop
+  # of the watchlist (banker -> lead_manager_of -> company -> named_in_order).
+  time_rule: {column: open_date, op: "<"}
+  params: {banker_id: int, as_of: date}
+  columns: {ipo_id: str, company: str, open_date: date}
+  max_rows: 2000
+  sql: >
+    SELECT i.ipo_id, i.company, i.open_date
+    FROM RF_ARCHIVE.ipo_banker ib
+    JOIN RF_ARCHIVE.ipos i ON i.ipo_id = ib.ipo_id
+    WHERE ib.banker_id = :banker_id
+      AND i.open_date < :as_of
+
+entity_edges_before:
+  # Director/promoter/group links taken from past RHPs, valid before as_of.
+  time_rule: {column: valid_from, op: "<"}
+  params: {as_of: date}
+  columns: {src_id: str, dst_id: str, type: str, source_ref: str, valid_from: date}
+  max_rows: 50000
+  sql: >
+    SELECT src_id, dst_id, type, source_ref, valid_from
+    FROM RF_ARCHIVE.entity_edge
+    WHERE valid_from < :as_of
