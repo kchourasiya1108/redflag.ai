@@ -15,13 +15,13 @@ class Specialists(Agent):
         raised = []
         specialists = list(SPECIALISTS)
         if facts is None or not facts.years():
-            ctx.case.add_not_checked("F1-F3", "no verified restated financials", agent=self.name)
+            ctx.case.add_not_checked("F1-F3", "the financial statements could not be read reliably", agent=self.name)
             specialists = [s for s in specialists if s.__name__.startswith("f5")]
         for specialist in specialists if facts is not None else []:
             finding = specialist(facts)
             if finding is None:
                 ctx.case.add_not_checked(specialist.__name__.split("_")[0].upper(),
-                                         "needed numbers are missing or unverified",
+                                         "the figures this needs could not be confirmed in the prospectus",
                                          agent=self.name)
                 continue
             ctx.case.add_flag(finding.flag, finding.severity, value=finding.value,
@@ -40,7 +40,7 @@ class Specialists(Agent):
         ctx.features |= feats
         rows = ctx.port.run("ipo_auditor", ipo_id=ctx.ipo_id).rows
         if not rows or feats["f_auditor_crash"] is None:
-            ctx.case.add_not_checked("F7 auditor risk", "auditor not in the archive",
+            ctx.case.add_not_checked("F7 auditor risk", "this auditor has no earlier SME IPOs in our records",
                                      agent=self.name)
             return None
         a, rate, n = rows[0], feats["f_auditor_crash"], int(feats["f_auditor_n"])

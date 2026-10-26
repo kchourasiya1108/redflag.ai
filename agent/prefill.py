@@ -57,8 +57,8 @@ def prefill(cfg: Settings, record: dict, pages: list[str], *, fetcher=None, gate
             take(values, source)
         except Exception as e:      # an exchange site down never blocks the check
             notes.append(f"exchange lookup failed: {type(e).__name__}")
-    take({**detected, "lead_managers": detected.get("lead_managers")
-          or known_bankers(cfg, pages)}, "rhp")
+    take({**detected, "lead_managers": detected.get("lead_managers") or known_bankers(cfg, pages),
+          "registrar": detected.get("registrar") or known_registrar(cfg, pages)}, "rhp")
     missing = [k for k in FIELDS if k not in fields]
     if gateway is not None and missing:
         # In a thread with a budget: a slow or failing model never holds up the check.
@@ -124,6 +124,35 @@ def known_bankers(cfg: Settings, pages: list[str]) -> list[str]:
     cover = offer_docs.cover_text(pages, 4)
     return [b for b in offer_docs.known_names(cover, candidates)
             if not offer_docs.is_registrar(b)][:4]
+
+
+_REG_MENTION = re.compile(r"(?i)regist?rars?\s+to\s+the\s+(?:issue|offer)")
+
+
+def known_registrar(cfg: Settings, pages: list[str]) -> str | None:
+    """The registrar, from the archive's short list of registrars and their spellings.
+
+    Looked for on the cover first, then next to "Registrar to the Issue" in the
+    first 80 pages (covers that open with a letter, or inline headings).
+    """
+    conn = _archive(cfg)
+    if conn is None or not pages:
+        return None
+    with conn:
+        rows = conn.execute("SELECT r.canonical_name, a.alias FROM registrars r "
+                            "LEFT JOIN registrar_alias a USING (registrar_id)").fetchall()
+    spelling = {}
+    for canonical, alias in rows:
+        spelling.setdefault(canonical, canonical)
+        if alias:
+            spelling[alias] = canonical
+    windows = [offer_docs.cover_text(pages, 4)]
+    windows += [t[m.start(): m.start() + 400] for t in pages[:80] for m in _REG_MENTION.finditer(t)]
+    for text in windows:
+        hits = offer_docs.known_names(text, spelling)
+        if hits:
+            return spelling[hits[0]]
+    return None
 
 
 # -- 2. the exchanges ---------------------------------------------------------------

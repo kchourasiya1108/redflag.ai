@@ -67,8 +67,8 @@ class Extractor(Agent):
                                           agent="Verifier", detail="; ".join(c.failed or c.ran))
             if not x.verified_periods:
                 ctx.case.add_not_checked(f"restated {kind.upper()} statement",
-                                         "could not be read or did not pass the accounting "
-                                         f"identities after {x.attempts} attempt(s)",
+                                         "could not be read reliably: its figures did not add up "
+                                         f"after {x.attempts} attempt(s)",
                                          agent="Verifier")
         ctx.scratch["facts"] = CaseFileFacts(ctx.case)
         # Only a model outage is a gap worth re-planning for; a table that does

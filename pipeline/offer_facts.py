@@ -40,8 +40,8 @@ def run(ctx: StageContext) -> dict:
                                         AND d.status = 'ok'""").fetchall()
     if ctx.limit:
         rows = rows[:ctx.limit]
-    # Auditors are rebuilt from scratch so extraction fixes reach every IPO.
-    for table in ("ipo_auditor", "auditor_alias", "auditors"):
+    # Auditors and people are rebuilt from scratch so extraction fixes reach every IPO.
+    for table in ("ipo_auditor", "auditor_alias", "auditors", "ipo_people"):
         conn.execute(f"DELETE FROM {table}")
     # Derived lot sizes are recomputed every run; exchange-API values are kept.
     conn.execute("UPDATE ipos SET lot_size = NULL, lot_size_source = NULL "
@@ -52,7 +52,7 @@ def run(ctx: StageContext) -> dict:
     lots = {(r["exchange"], r["symbol"]): (r["first_lot"], r["first_lot_date"]) for r in
             conn.execute("SELECT exchange, symbol, first_lot, first_lot_date FROM securities")}
     check = {"doc": [0, 0], "bhavcopy": [0, 0]}      # [agree, compared] against NSE's API
-    filled = {"lot_size": 0, "cin": 0, "market_maker": 0, "auditor": 0}
+    filled = {"lot_size": 0, "cin": 0, "market_maker": 0, "auditor": 0, "people": 0}
     for r in rows:
         pages = load_pages(ctx, r["sha256"])
         updates: dict = {}
@@ -77,6 +77,11 @@ def run(ctx: StageContext) -> dict:
             updates["market_maker_raw"] = mm
         if pages:
             filled["auditor"] += record_auditor(conn, r["ipo_id"], offer_docs.auditor(pages))
+            found = offer_docs.people(pages)
+            conn.executemany("INSERT OR IGNORE INTO ipo_people (ipo_id, person_key, name, role) "
+                             "VALUES (?,?,?,?)", [(r["ipo_id"], p["person_key"], p["name"], p["role"])
+                                                  for p in found])
+            filled["people"] += len(found)
         if updates:
             filled["lot_size"] += "lot_size" in updates
             filled["cin"] += "cin" in updates

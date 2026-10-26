@@ -39,6 +39,7 @@ AJAX = "https://www.sebi.gov.in/sebiweb/ajax/home/getnewslistinfo.jsp"
 KEYWORDS = ["SME", "initial public offer", "IPO proceeds", "Emerge platform",
             "merchant banker"]
 MIN_CORE_LEN = 6   # shorter names ("ABC") match too many unrelated titles
+MIN_PERSON_LEN = 10  # "Raj Shah" alone matches unrelated people; full names are longer
 
 
 def run(ctx: StageContext) -> dict:
@@ -52,16 +53,28 @@ def run(ctx: StageContext) -> dict:
 
     ctx.fetcher.get(LISTING)   # session cookies for the AJAX endpoint
     found: dict[str, dict] = {}
+    by_person: dict[str, set[str]] = {}     # order_id -> person entities whose search found it
     for entity_id, query in queries:
         try:
             for order in search(ctx, query):
                 found.setdefault(order["order_id"], order)
+                if entity_id and entity_id.startswith("ent:person:"):
+                    by_person.setdefault(order["order_id"], set()).add(entity_id)
         except Exception as e:
             ctx.log.failure(query, "search", str(e))
 
+    people = {e["entity_id"]: e for e in entities if e["type"] == "person"}
     proposals, kept = [], []
     for order in found.values():
         hits = match_title(order["title"], entities)
+        # A promoter or director is usually named inside the order, not in its title:
+        # an order their own search found counts when its text names them in full.
+        candidates = [people[p] for p in by_person.get(order["order_id"], ()) if p in people
+                      and people[p] not in hits]
+        if candidates:
+            fetch_text(ctx, order)
+            body = f" {names.normalise(order_text(ctx, order))} "
+            hits += [p for p in candidates if f" {p['query']} " in body]
         if not hits:
             continue
         order["matched_query"] = "; ".join(h["query"] for h in hits)
@@ -75,7 +88,8 @@ def run(ctx: StageContext) -> dict:
     upsert(ctx.conn, "sebi_orders", kept, ("order_id",))
     # Never overwrite a person's review decision.
     ctx.conn.executemany(
-        "INSERT OR IGNORE INTO sebi_order_entity VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT OR IGNORE INTO sebi_order_entity (order_id, entity_name, entity_role, entity_id, "
+        "finding, action, period, reviewed) VALUES (?,?,?,?,?,?,?,?)",
         [(p["order_id"], p["entity_name"], p["entity_role"], p["entity_id"],
           p["finding"], p["action"], p["period"], p["reviewed"]) for p in proposals])
     ctx.conn.commit()
@@ -101,6 +115,12 @@ def register_entities(ctx: StageContext) -> None:
     for r in conn.execute("SELECT alias, banker_id FROM banker_alias"):
         aliases.append({"alias": r["alias"], "entity_id": f"ent:banker:{r['banker_id']}",
                         "match_type": "exact", "similarity": 1.0})
+    # Promoters and directors read from the RHPs (offer_facts), one entity per person.
+    for r in conn.execute("SELECT person_key, min(name) AS name FROM ipo_people GROUP BY person_key"):
+        eid = f"ent:person:{r['person_key']}"
+        ents.append({"entity_id": eid, "type": "person", "canonical_name": r["name"]})
+        aliases.append({"alias": names.normalise(r["name"]), "entity_id": eid,
+                        "match_type": "exact", "similarity": 1.0})
     upsert(conn, "entities", ents, ("entity_id",))
     upsert(conn, "entity_alias", aliases, ("alias", "entity_id"))
     conn.commit()
@@ -109,16 +129,21 @@ def register_entities(ctx: StageContext) -> None:
 def load_entities(conn) -> list[dict]:
     out = []
     for r in conn.execute("SELECT entity_id, type, canonical_name FROM entities "
-                          "WHERE type IN ('company', 'banker')"):
+                          "WHERE type IN ('company', 'banker', 'person')"):
         query = names.core(r["canonical_name"])
-        if len(query) >= MIN_CORE_LEN:
+        # A person is searched by full name only: a single given name matches too much.
+        if r["type"] == "person" and len(query.split()) < 2:
+            continue
+        if len(query) >= (MIN_PERSON_LEN if r["type"] == "person" else MIN_CORE_LEN):
             out.append({"entity_id": r["entity_id"], "type": r["type"],
                         "name": r["canonical_name"], "query": query})
     return out
 
 
 def search(ctx: StageContext, query: str) -> list[dict]:
-    raw = ctx.settings.raw / "sebi_orders" / "search"
+    # Search results are cached per month, so a refresh finds orders issued since
+    # the last one; each order's PDF is still fetched only once.
+    raw = ctx.settings.raw / "sebi_orders" / "search" / datetime.now(timezone.utc).strftime("%Y-%m")
     slug = re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")[:80]
     orders, page, last = [], 0, 0
     while page <= last:
@@ -200,6 +225,12 @@ def fetch_text(ctx: StageContext, order: dict) -> None:
             ctx.log.failure(order["order_id"], "little_text", order["url"])
     except Exception as e:
         ctx.log.failure(order["order_id"], "pdf", str(e))
+
+
+def order_text(ctx: StageContext, order: dict) -> str:
+    """The order's cached text ("" if it could not be read)."""
+    path = ctx.settings.cache / "sebi_text" / f"{order['order_id']}.txt"
+    return path.read_text() if path.exists() else ""
 
 
 def inline_text(page: str) -> str:

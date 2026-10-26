@@ -242,6 +242,18 @@ CREATE TABLE IF NOT EXISTS ipo_auditor (
     page            INTEGER                    -- RHP page the auditor was read from
 );
 
+-- People behind each issue: individual promoters (the cover) and directors (DIN
+-- lines), read from the RHP. person_key is the normalised name, the same for one
+-- person across IPOs, so a promoter's earlier issues can be found (watchlist hop 2).
+CREATE TABLE IF NOT EXISTS ipo_people (
+    ipo_id          TEXT NOT NULL REFERENCES ipos(ipo_id),
+    person_key      TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    role            TEXT NOT NULL,             -- promoter | director
+    page            INTEGER,
+    PRIMARY KEY (ipo_id, person_key, role)
+);
+
 -- S03: registrar and market maker masters, built like the banker master.
 CREATE TABLE IF NOT EXISTS registrars (
     registrar_id    INTEGER PRIMARY KEY,

@@ -167,6 +167,7 @@ def cover_facts(pages: list[str]) -> dict:
         "market_maker": issue["market_maker"],
         "auditor": aud["name"], "auditor_page": aud["page"], "auditor_changed_3y": aud["changed_3y"],
         "lot_size": offer_docs.lot_size(pages),
+        "people": offer_docs.people(pages),
         "issue_type": issue["issue_type"],
         "issue_shares": issue["issue_shares"],
     }
@@ -234,18 +235,32 @@ def create(cfg: Settings, pdf: bytes, filename: str = "rhp.pdf", *, fetcher=None
         return record
     if source:
         record["source"] = source
+    _prefill(cfg, record, fetcher=fetcher, gateway=gateway, exchange_hint=exchange_hint)
+    return record
+
+
+def refill(cfg: Settings, upload_id: str, *, exchange_hint: dict | None = None,
+           fetcher=None, gateway=None) -> dict:
+    """Fill an existing upload's details again, e.g. once the exchange publishes its price."""
+    record = load(cfg, upload_id)
+    if record is None:
+        raise UploadError("unknown upload")
+    _prefill(cfg, record, fetcher=fetcher, gateway=gateway, exchange_hint=exchange_hint)
+    return record
+
+
+def _prefill(cfg: Settings, record: dict, **sources) -> None:
     if record["status"] == "ok":
         from agent import prefill
         from pipeline.rhp import page_texts
         pages = page_texts(folder(cfg) / record["upload_id"] / "rhp.pdf",
-                           cfg.cache / "pages" / f"{sha}.json")
+                           cfg.cache / "pages" / f"{record['sha256']}.json")
         record["prefilled"], record["provenance"], record["prefill_notes"] = prefill.prefill(
-            cfg, record, pages, fetcher=fetcher, gateway=gateway, exchange_hint=exchange_hint)
+            cfg, record, pages, **sources)
     else:
         record["prefilled"], record["provenance"], record["prefill_notes"] = {}, {}, []
     _apply(record)
     _save(cfg, record)
-    return record
 
 
 def _apply(record: dict) -> None:
@@ -364,7 +379,7 @@ def _match(name: str, candidates: list[dict], key: str) -> dict | None:
     return best if best and namelib.similarity(best[key], name) >= 0.92 else None
 
 
-def local_rows(record: dict, port) -> dict[str, list[dict]]:
+def local_rows(record: dict, port, cfg: Settings | None = None) -> dict[str, list[dict]]:
     """Rows for the IPO-specific templates, with firms matched through the Data Port."""
     f = record["fields"]
     bankers = port.run("banker_names").rows if f.get("lead_managers") else []
@@ -392,5 +407,11 @@ def local_rows(record: dict, port) -> dict[str, list[dict]]:
                               "canonical_name") and namelib.core(n) not in matched]
     doc = {"doc_type": "rhp", "sha256": record["sha256"], "pages": record["pages"],
            "text_pages": record["text_pages"], "status": record["status"], "url": ""}
+    people = record["detected"].get("people")
+    if people is None and cfg is not None:      # uploaded before people were read
+        from agent.rhp import load_pages
+        pages = load_pages(cfg.cache / "pages", record["sha256"])
+        people = offer_docs.people(pages) if pages else []
     return {"ipo_meta": [meta(record)], "ipo_bankers": ipo_bankers, "ipo_parties": parties,
-            "ipo_rhp_doc": [doc], "ipo_auditor": auditor, "ipo_facts": []}
+            "ipo_rhp_doc": [doc], "ipo_auditor": auditor, "ipo_facts": [],
+            "ipo_people": [{k: p[k] for k in ("person_key", "name", "role")} for p in people or []]}

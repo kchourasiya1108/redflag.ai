@@ -24,20 +24,21 @@ class BankerTrackRecord(Agent):
         rate, n, base = feats["f_banker_crash"], feats["f_banker_n"], feats["base_rate"]
         evidence = ctx.refs("banker_track_record")
         if rate is None:
-            why = ("no lead manager in the archive" if base is not None else
-                   f"no SME IPO outcome was known before {ctx.as_of} to compare against")
+            why = ("this lead manager has no earlier SME IPOs in our records" if base is not None else
+                   f"no SME IPO results were known before {ctx.as_of} to compare against")
             ctx.case.add_not_checked("F10 banker track record", why, agent=self.name)
             return AgentResult(why, target="Watchlist")
         thin = feats["f_banker_low_history"]
         severity = f10_severity(rate)
         if thin and severity == "LOW":
             # A short record is not a pass: say so instead of clearing the check.
-            ctx.case.add_not_checked("F10 banker track record", f"only {int(n)} earlier SME "
-                                     f"IPOs with a known outcome (fewer than {LOW_HISTORY_N})",
-                                     agent=self.name)
-            ctx.case.add_question(f"The lead manager {ctx.meta['banker_raw']} has only {int(n)} "
-                                  "earlier SME IPOs with a known 6-month outcome; ask about its "
-                                  "track record.", agent=self.name,
+            history = ("no earlier SME IPOs" if int(n) == 0 else
+                       "only 1 earlier SME IPO" if int(n) == 1 else f"only {int(n)} earlier SME IPOs")
+            ctx.case.add_not_checked("F10 banker track record", f"the lead manager has {history} "
+                                     "with known results, too few to judge", agent=self.name)
+            ctx.case.add_question(f"The lead manager, {ctx.meta['banker_raw']}, has {history} whose "
+                                  "results after six months are known. How have the IPOs it "
+                                  "managed performed?", agent=self.name,
                                   source=(evidence or [None])[0])
             return AgentResult(f"thin history: {int(n)} past IPOs", target="Watchlist")
         text = (f"{ctx.meta['banker_raw']}: {int(n)} earlier SME IPOs with a known 6-month "

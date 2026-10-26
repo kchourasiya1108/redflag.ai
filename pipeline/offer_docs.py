@@ -34,6 +34,7 @@ _RTA_HINT = re.compile(r"(?i)registr|intime|bigshare|kfin|karvy|cameo|skyline|ma
 _MIDDLE_NOISE = re.compile(r"\b(?:[ULul]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}|IN[MR]-?\d{6,}|"
                            r"\+?\d[\d -]{7,}\d)\b")
 _LEADING_NOISE = re.compile(r"^(?:(?:NO\.?|No\.?|Being|being|Market|MARKET|Maker|MAKER|Lead|LEAD|"
+                            r"Book|BOOK|Running|RUNNING|Managers?|MANAGERS?|TO\s+THE\s+ISSUE|to\s+the\s+Issue|"
                             r"Manager\.?|MANAGER\.?|Issue|ISSUE|The|THE|In|M/s\.?|"
                             r"Registrar|REGISTRAR|Registrars|REGISTRARS|"
                             r"[ULul]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}|"      # CIN
@@ -53,7 +54,7 @@ _FIRM = re.compile(r"(?<![A-Za-z(])((?:(?:\(?[A-Z0-9][A-Za-z0-9.'’()-]*|&)\s+)
                    r"(?![A-Za-z])")
 _NOT_A_PARTY = re.compile(r"(?i)\b(?:rating|monitoring|stock\s+exchange|bse\s+limited|"
                           r"national\s+securities\s+depository|central\s+depository|"
-                          r"our\s+company|bank|banker)\b")
+                          r"our\s+company|(?<!merchant\s)bank|(?<!merchant\s)banker)\b")
 
 
 def firms(text: str, exclude: str = "") -> list[str]:
@@ -211,9 +212,23 @@ _AUDITOR_HEAD = re.compile(r"(?i)statutory\s+(?:and\s+peer\s+review\s+)?auditors
 # ("M/s. Singhi & Co LLP, Chartered Accountants", "Gnanoba & Bhat, Chartered ...").
 _CA_FIRM = re.compile(r"((?:[A-Z][A-Za-z.'’-]*\.?\s*(?:(?:&|and)\s+)?){1,8}?(?:LLP)?)\s*[,(]?\s*"
                       r"Chartered\s+Accountants?")
-_CA_NOISE = re.compile(r"^(?:(?:The|Statutory|Peer|Review|Reviewed|Independent|Practi[cs]ing|"
-                       r"Auditors?|Our|Being|Namely|And|"
+_CA_NOISE = re.compile(r"^(?:(?:The|THE|Statutory|Peer|Review|Reviewed|REVIEWED|Independent|Practi[cs]ing|"
+                       r"Auditors?|Our|OUR|Of|OF|Being|Namely|And|AND|Cum|CUM|Company|COMPANY|"
                        r"M/s\.?|Ms\.?|Messrs\.?|STATUTORY|PEER|REVIEW|AUDITORS?)(?:\s+|$))+")
+# A line above the firm's name that belongs to something else: an address, another
+# party's company name, or a two-column cover's "..., India".
+_NOT_FIRM_LINE = re.compile(r"\d|\b(?:Limited|LIMITED|Ltd|LTD|Private|PRIVATE|Road|ROAD|Marg|MARG|"
+                            r"Floor|FLOOR|Nagar|NAGAR)\b|\bIndia\s*$|\bINDIA\s*$")
+
+
+def _firm_name(raw: str) -> str:
+    """The audit firm from a match that may start on an unrelated line."""
+    raw = re.split(r"\b(?:Being|being|namely|Namely)\b", raw)[-1]       # "..., being X & Co"
+    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    while len(lines) > 1 and _NOT_FIRM_LINE.search(lines[0]):
+        lines.pop(0)
+    text = " ".join(lines)
+    return _CA_NOISE.sub("", re.sub(r"\s+", " ", text).strip(" ,.&"))
 _FRN = re.compile(r"(?i)(?:firm\s+registration\s+(?:no|number)|F\.?\s*R\.?\s*N\.?)\.?\s*:?\s*"
                   r"([0-9]{5,6}[A-Z]{1,2})")
 _PEER = re.compile(r"(?i)peer\s+review\s+(?:certificate\s+)?(?:no|number)\.?\s*:?\s*([0-9]{4,6})")
@@ -230,7 +245,7 @@ def auditor(pages: list[str], limit: int = 150) -> dict:
         for head in _AUDITOR_HEAD.finditer(text):
             window = text[head.end(): head.end() + 900]
             for m in _CA_FIRM.finditer(window.replace("M/s.", " ").replace("M/s", " ")):
-                name = _CA_NOISE.sub("", re.sub(r"\s+", " ", m.group(1)).strip(" ,.&"))
+                name = _firm_name(m.group(1))
                 name = re.sub(r"\s+(?:and|&)$", "", name)
                 if len(name) >= 4 and name.lower() not in {"company", "associates", "co", "llp"}:
                     break
@@ -265,3 +280,95 @@ def extract(pages: list[str], company: str = "", registrars: Iterable[str] = (),
             "market_maker": market_maker(pages, company), "issue_shares": shares["total"],
             "fresh_shares": shares["fresh"], "ofs_shares": shares["ofs"],
             "issue_type": shares["type"], "issue_price": issue_price(cover)}
+
+
+# -- the people behind the issue (watchlist F11, label B) ------------------------------
+
+_PROMOTER_HEAD = re.compile(r"(?i)\b(?:the\s+)?promoters?\s+of\s+(?:our|the)\s+company"
+                            r"(?:\s+(?:is|are))?\s*[:\-–]?\s*")
+_PROMOTER_END = re.compile(r"(?i)\s(?:DETAILS\s+OF|INITIAL\s+PUBLIC|PUBLIC\s+(?:ISSUE|OFFER)|TYPE\s+FRESH|"
+                           r"THE\s+ISSUE|OUR\s+COMPANY|REGISTERED|CORPORATE|CONTACT|For\s+(?:further|details)|"
+                           r"\(?Please|ISSUE\s+OF|OFFER\s+FOR)")
+_HONORIFIC = re.compile(r"(?i)^(?:mr|ms|mrs|miss|dr|shri|smt|late)\.?\s+")
+_PERSON = re.compile(r"^[A-Za-z][A-Za-z.'’-]*(?:\s+[A-Za-z][A-Za-z.'’-]*){1,5}$")
+_NOT_PERSON = re.compile(r"(?i)\b(?:limited|ltd|llp|private|pvt|trust|huf|company|corporation|"
+                         r"group|holdings?|enterprises?|industries|ventures|associates|foundation)\b")
+
+
+def _people(text: str) -> list[str]:
+    out = []
+    for part in re.split(r"\s*(?:,|;|&|\band\b)\s*", text, flags=re.I):
+        name = _HONORIFIC.sub("", re.sub(r"\s+", " ", part).strip(" .:-"))
+        if _PERSON.match(name) and not _NOT_PERSON.search(name) and len(name) >= 6:
+            out.append(name.title() if name.isupper() else name)
+    return list(dict.fromkeys(out))
+
+
+def promoters(pages: list[str]) -> list[str]:
+    """Individual promoters named on the cover ("PROMOTERS OF OUR COMPANY: A AND B")."""
+    cover = re.sub(r"\s+", " ", cover_text(pages, 3))
+    m = _PROMOTER_HEAD.search(cover)
+    if not m:
+        return []
+    tail = cover[m.end(): m.end() + 400]
+    end = _PROMOTER_END.search(tail)
+    return _people(tail[: end.start() if end else 250])[:12]
+
+
+_DIN = re.compile(r"(?<![A-Za-z])DIN\s*(?:No\.?)?\s*[:\-]?\s*\d{8}\b")
+# Words that sit next to a director's name in board tables but are not part of it.
+_NOT_NAME_WORD = re.compile(r"(?i)^(?:director|directors|managing|executive|non|non-executive|independent|"
+                            r"chairman|chairperson|chief|financial|officer|whole|time|whole-time|wholetime|"
+                            r"designation|residential|address|india|indian|nationality|nationality-indian|"
+                            r"business|finance|occupation|name|age|years|term|din|additional|nominee|"
+                            r"woman|promoter|cum|and|of|the|our|company|secretary|compliance|directorships?|other|nil|"
+                            r"details|past|present|profile|brief|experience|qualification|"
+                            r"gujarat|maharashtra|rajasthan|delhi|odisha|karnataka|kerala|bihar|haryana|"
+                            r"punjab|telangana|tamil|nadu|bengal|west|uttar|pradesh|madhya|assam|goa|"
+                            r"mumbai|ahmedabad|surat|kolkata|chennai|bengaluru|bangalore|hyderabad|pune|"
+                            r"jaipur|indore|noida|gurugram|gurgaon|thane)$")
+
+
+def _name_before(text: str) -> str | None:
+    """The person's name ending just before a DIN: 2-4 capitalised words, read backwards."""
+    words = re.findall(r"[A-Za-z][A-Za-z.'’-]*|\S", text)
+    name = []
+    for w in reversed(words):
+        if w in "(:,-–" and not name:
+            continue
+        if not re.match(r"^[A-Z][A-Za-z.'’-]*$", w) or _NOT_NAME_WORD.match(w.strip(".")):
+            break
+        name.insert(0, w)
+        if len(name) == 4:
+            break
+    name = [w for w in name if not re.match(r"(?i)^(?:mr|ms|mrs|dr|shri|smt)\.?$", w)]
+    return " ".join(name) if len(name) >= 2 else None
+
+
+def directors(pages: list[str], limit: int = 300) -> list[str]:
+    """Directors, from "Name (DIN: 12345678)" in the board and management chapters."""
+    out = []
+    for text in pages[:limit]:
+        for m in _DIN.finditer(text):
+            name = _name_before(text[max(0, m.start() - 80): m.start()].replace("\n", " "))
+            if name:
+                out += _people(name)
+    counts = {n: out.count(n) for n in out}
+    return sorted(counts, key=lambda n: (-counts[n], out.index(n)))[:15]
+
+
+def person_key(name: str) -> str:
+    """One key per person across IPOs: the normalised name, as an id (letters and dashes)."""
+    return re.sub(r"[^a-z]+", "-", namelib.normalise(_HONORIFIC.sub("", name.strip()))).strip("-")
+
+
+def people(pages: list[str]) -> list[dict]:
+    """Promoters and directors of the issuer, with their key and role."""
+    out, seen = [], set()
+    for role, found in (("promoter", promoters(pages)), ("director", directors(pages))):
+        for name in found:
+            key = person_key(name)
+            if len(key) >= 6 and (key, role) not in seen:
+                seen.add((key, role))
+                out.append({"person_key": key, "name": name, "role": role})
+    return out

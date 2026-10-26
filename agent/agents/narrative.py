@@ -45,7 +45,7 @@ class NarrativeReader(Agent):
             return AgentResult(f"skipped: {why}")
         if depth == LIGHT:
             for item in ("F6 related parties", "F9 use of money"):
-                ctx.case.add_not_checked(item, "LIGHT depth reads the core sections only",
+                ctx.case.add_not_checked(item, "a quick screen does not read this part of the prospectus",
                                          agent=self.name)
         history = ctx.cfg.logs / ctx.run_id / "markovian.jsonl"
         memory = ""
@@ -79,7 +79,7 @@ class NarrativeReader(Agent):
             else:
                 self._record(ctx, finding, cap, "F4 insider discount", done)
         else:
-            ctx.case.add_not_checked("F4 insider discount", cap.error or "no allotment rows read",
+            ctx.case.add_not_checked("F4 insider discount", cap.error or "the share capital history could not be read",
                                      agent=self.name)
         obj = results.get("objects")
         if obj is None:
@@ -90,14 +90,14 @@ class NarrativeReader(Agent):
                                               obj.pages), obj,
                          "F9 use of money", done)
         else:
-            ctx.case.add_not_checked("F9 use of money", obj.error or "no objects table read",
+            ctx.case.add_not_checked("F9 use of money", obj.error or "the table of how the money will be used could not be read",
                                      agent=self.name)
         basis = results.get("basis")
         if basis and basis.data.get("peers"):
             self._record(ctx, f8_overvalued(peer_valuation(basis.data, ctx.meta.get("company", ""))),
                          basis, "F8 valuation vs peers", done)
         elif basis:
-            ctx.case.add_not_checked("F8 valuation vs peers", basis.error or "no peer table read",
+            ctx.case.add_not_checked("F8 valuation vs peers", basis.error or "the comparison with listed peers could not be read",
                                      agent=self.name)
         rpt = results.get("rpt")
         facts = ctx.scratch.get("facts")
@@ -120,7 +120,7 @@ class NarrativeReader(Agent):
 
     def _record(self, ctx, finding, section, item, done):
         if finding is None:
-            ctx.case.add_not_checked(item, "the numbers needed were not in the table read",
+            ctx.case.add_not_checked(item, "the figures this needs were not in the table we read",
                                      agent=self.name)
             return
         ctx.case.add_flag(finding.flag, finding.severity, value=finding.value,

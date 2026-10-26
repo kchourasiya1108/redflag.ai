@@ -14,7 +14,6 @@ is read from the cover; the investor can still correct them.
 """
 from __future__ import annotations
 
-import html
 import json
 import re
 import time
@@ -65,12 +64,34 @@ def refresh(cfg: Settings, fetcher, log=print) -> dict:
             except Exception as e:
                 errors.append(f"{issue['company']}: {type(e).__name__}: {e}"[:300])
                 log(f"  {issue['company']} failed: {e}")
+    priced = fill_bse_prices(cfg, fetcher, log)
     summary = {"refreshed_at": time.time(), "seconds": round(time.time() - started, 1),
-               "found": found, "errors": errors}
+               "found": found, "priced": priced, "errors": errors}
     path = status_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(summary, indent=1))
     return summary
+
+
+def fill_bse_prices(cfg: Settings, fetcher, log=print) -> list[str]:
+    """BSE SME records still without a price get one once BSE lists the issue as closed."""
+    waiting = [r for r in uploads.list_all(cfg)
+               if (r.get("source") or {}).get("exchange") == "BSE SME" and not r["fields"].get("issue_price")]
+    if not waiting:
+        return []
+    try:
+        public = [p for p in bse_public_issues(fetcher) if p.get("issue_price")]
+    except Exception as e:
+        log(f"BSE prices: {e}")
+        return []
+    done = []
+    for r in waiting:
+        hit = next((p for p in public if names.similarity(p["company"], r["fields"].get("company") or "") >= 0.9), None)
+        if hit:
+            uploads.refill(cfg, r["upload_id"], exchange_hint=hit)
+            done.append(r["upload_id"])
+            log(f"  {hit['company']}: price {hit['issue_price']} from BSE ({hit['price_band']})")
+    return done
 
 
 def load_issue(cfg: Settings, fetcher, issue: dict) -> dict:
@@ -121,24 +142,32 @@ def nse_issues(cfg: Settings, fetcher, need_rhp: bool = True) -> list[dict]:
 
 # -- BSE SME --------------------------------------------------------------------
 
-BSE_PUBLIC = "https://www.bsesme.com/PublicIssues/PublicIssues.aspx?id=1"
+BSE_PUBLIC = bse_docs.PUBLIC_ISSUES.format(1)
 
 
 def bse_public_issues(fetcher) -> list[dict]:
-    """BSE SME's live and forthcoming issues: dates, offer price (once fixed) and status."""
-    page = fetcher.get(BSE_PUBLIC, referer="https://www.bsesme.com/").decode("utf-8", "ignore")
-    out = []
-    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", page, re.S):
-        tds = [html.unescape(re.sub(r"<[^>]+>", "", t)).strip()
-               for t in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
-        if len(tds) < 7 or not re.match(r"\d{2}-\d{2}-\d{4}$", tds[1] or ""):
+    """BSE SME issues from its public-issues tables: live and forthcoming (dates, status),
+    and closed ones, which carry the price band. A closed issue's price fills an open
+    record's gap as soon as bidding ends."""
+    def iso(d: str) -> str:
+        return date(int(d[6:]), int(d[3:5]), int(d[:2])).isoformat()
+    out = {}
+    for which in (2, 1):            # live rows (1) override closed rows (2) for status
+        try:
+            rows = bse_docs.public_issues(fetcher, which)
+        except Exception:
             continue
-        to_iso = lambda d: date(int(d[6:]), int(d[3:5]), int(d[:2])).isoformat()
-        band = [float(x) for x in re.findall(r"[\d.]+", tds[3].replace(",", ""))]
-        out.append({"company": tds[0], "open_date": to_iso(tds[1]), "close_date": to_iso(tds[2]),
-                    "issue_price": band[-1] if band else None, "price_band": tds[3] or None,
-                    "exchange": "BSE SME", "status": tds[6], "source": "bse"})
-    return out
+        for r in rows:
+            band = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", r["offer_price"].replace(",", "")) if float(x) > 0]
+            key = (names.normalise(r["scrip_name"]), r["start_date"])
+            prev = out.get(key, {})
+            out[key] = {"company": r["scrip_name"], "open_date": iso(r["start_date"]),
+                        "close_date": iso(r["end_date"]),
+                        "issue_price": (band[-1] if band else None) or prev.get("issue_price"),
+                        "price_band": r["offer_price"] or prev.get("price_band"),
+                        "exchange": "BSE SME", "status": r["status"] if which == 1 else "Closed",
+                        "source": "bse"}
+    return list(out.values())
 
 
 def bse_issues(cfg: Settings, fetcher, today: date | None = None) -> list[dict]:

@@ -37,7 +37,7 @@ class Intake(Agent):
         ctx.meta = uploads.meta(record)
         ctx.as_of = uploads.as_of(record)
         ctx.port = DataPort(ctx.client, ctx.as_of, on_query=ctx.on_query)
-        ctx.port.provide(uploads.local_rows(record, ctx.port))
+        ctx.port.provide(uploads.local_rows(record, ctx.port, ctx.cfg))
         return self.open_case(ctx)
 
     def open_case(self, ctx: RunContext) -> AgentResult:

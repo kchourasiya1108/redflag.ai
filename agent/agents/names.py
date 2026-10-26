@@ -10,7 +10,8 @@ from agent.agents.base import Agent, AgentResult, RunContext
 from agent.features import archive_parties
 
 EDGE = {"banker": "lead_manager_of", "auditor": "auditor_of", "market_maker": "market_maker_of",
-        "registrar": "registrar_of", "person": "director_of"}
+        "registrar": "registrar_of", "person": "director_of", "promoter": "promoter_of",
+        "director": "director_of"}
 
 
 class Names(Agent):

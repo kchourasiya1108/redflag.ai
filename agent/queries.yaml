@@ -211,3 +211,29 @@ auditor_names:
     FROM RF_ARCHIVE.auditors a
     LEFT JOIN RF_ARCHIVE.auditor_alias x ON x.auditor_id = a.auditor_id
     ORDER BY a.auditor_id
+
+ipo_people:
+  time_free: true      # promoters and directors are printed in the IPO's own RHP
+  params: {ipo_id: id}
+  columns: {person_key: str, name: str, role: str}
+  max_rows: 60
+  sql: >
+    SELECT person_key, name, role
+    FROM RF_ARCHIVE.ipo_people
+    WHERE ipo_id = :ipo_id
+    ORDER BY role, person_key
+
+person_past_ipos:
+  # A promoter's or director's earlier issues that had opened before as_of: the
+  # second hop of the watchlist (person -> promoter_of -> company -> named_in_order).
+  time_rule: {column: open_date, op: "<"}
+  params: {person_key: id, as_of: date}
+  columns: {ipo_id: str, company: str, open_date: date, role: str}
+  max_rows: 200
+  sql: >
+    SELECT i.ipo_id, i.company, i.open_date, p.role
+    FROM RF_ARCHIVE.ipo_people p
+    JOIN RF_ARCHIVE.ipos i ON i.ipo_id = p.ipo_id
+    WHERE p.person_key = :person_key
+      AND i.open_date < :as_of
+    ORDER BY i.open_date, i.ipo_id

@@ -27,6 +27,9 @@ from pipeline.base import Gate, StageContext
 
 BASE = "https://www.bsesme.com"
 INDEX = f"{BASE}/PublicIssues/SMEIPODRHP.aspx"
+# BSE SME's public-issues tables: id=1 live and forthcoming issues (no price while
+# bidding is open), id=2 every issue once bidding has closed, with its price band.
+PUBLIC_ISSUES = f"{BASE}/PublicIssues/PublicIssues.aspx?id={{}}"
 IPO_TYPES = {"Book Building", "Fixed Price"}
 EXTRA_DEMO = ["Droneacharya Aerial Innovations Limited"]   # opened Dec 2022
 
@@ -69,8 +72,7 @@ def run(ctx: StageContext) -> dict:
     ctx.conn.commit()
     ctx.log.info(f"BSE SME offer documents index: {len(index)} companies")
 
-    ipos = load_ipo_list(ctx.settings.data / "manual" / "bse_sme_historical_issues.tsv",
-                         ctx.settings.universe_from, ctx.settings.universe_to)
+    ipos = load_ipo_list(ipo_list_path(ctx), ctx.settings.universe_from, ctx.settings.universe_to)
     by_norm = {d["norm"]: d for d in index}
     rows = []
     for ipo in ipos:
@@ -123,6 +125,43 @@ def parse_index(text: str) -> list[dict]:
             "drhp_url": first(links[0]), "rhp_url": first(links[1]),
             "prospectus_url": first(links[2]), "boa_url": first(links[3])}
     return list(out.values())
+
+
+def public_issues(fetcher, which: int, dest: Path | None = None) -> list[dict]:
+    """Rows of a BSE SME public-issues table, in the manual export's column names."""
+    page = fetcher.get(PUBLIC_ISSUES.format(which), dest, referer=BASE + "/").decode("utf-8", "ignore")
+    out = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", page, re.S):
+        tds = [html.unescape(re.sub(r"<[^>]+>", "", t)).strip()
+               for t in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+        if len(tds) < 6 or not re.match(r"\d{2}-\d{2}-\d{4}$", tds[1] or ""):
+            continue
+        out.append({"scrip_name": re.sub(r"\s+", " ", tds[0]), "start_date": tds[1],
+                    "end_date": tds[2], "offer_price": tds[3], "face_value": tds[4],
+                    "issue_type": tds[5], "status": tds[6] if len(tds) > 6 else "Closed"})
+    return out
+
+
+def ipo_list_path(ctx: StageContext) -> Path:
+    """Today's copy of BSE SME's closed-issues table, else the user's manual export."""
+    manual = ctx.settings.data / "manual" / "bse_sme_historical_issues.tsv"
+    dest = ctx.settings.raw / "bse" / f"historical_issues_{date.today():%Y%m%d}.tsv"
+    try:
+        rows = public_issues(ctx.fetcher, 2, ctx.settings.raw / "bse" / f"public_issues_2_{date.today():%Y%m%d}.html")
+    except Exception as e:      # BSE unreachable: the export still works
+        ctx.log.failure("bse_public_issues", "fetch", str(e)[:200])
+        return manual
+    if len(rows) < 100:
+        ctx.log.failure("bse_public_issues", "too_few_rows", str(len(rows)))
+        return manual
+    cols = ["scrip_name", "start_date", "end_date", "offer_price", "face_value", "issue_type"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, cols, delimiter="\t", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    ctx.log.info(f"BSE SME closed issues from bsesme.com: {len(rows)} rows")
+    return dest
 
 
 def load_ipo_list(path: Path, start: date, end: date) -> list[dict]:

@@ -70,7 +70,8 @@ def settings() -> Settings:
     return Settings(
         data=Path(env("REDFLAG_DATA_DIR", ROOT / "data")),
         universe_from=date.fromisoformat(env("UNIVERSE_FROM", "2023-01-01")),
-        universe_to=date.fromisoformat(env("UNIVERSE_TO", "2025-12-31")),
+        # Up to today by default, so a refresh never leaves this year's IPOs out.
+        universe_to=date.fromisoformat(env("UNIVERSE_TO", date.today().isoformat())),
         http_min_interval_s=float(env("HTTP_MIN_INTERVAL_S", "0.6")),
         http_timeout_s=float(env("HTTP_TIMEOUT_S", "30")),
     )

@@ -90,6 +90,8 @@ def archive_parties(data: DataPort, ipo_id: str, company: str) -> list[Named]:
                     "archive:ipo_banker") for b in data.run("ipo_bankers", ipo_id=ipo_id).rows]
     named += [Named(p["role"], p["canonical_name"], None, f"archive:{p['role']}")
               for p in data.run("ipo_parties", ipo_id=ipo_id).rows]
+    named += [Named(p["role"], p["name"], f"ent:person:{p['person_key']}", "archive:ipo_people")
+              for p in data.run("ipo_people", ipo_id=ipo_id).rows]
     return named
 
 
@@ -127,6 +129,8 @@ def watchlist_links(data: DataPort, ipo_id: str, as_of: date,
             if not _could_match(n.name, o["entity_name"]):
                 continue
             sim = name_similarity(n.name, o["entity_name"])
+            if n.role in PERSON_ROLES and sim < PERSON_MATCH_AT:
+                continue
             verdict = decide(sim)
             if verdict != "new":
                 add(Link(n, o, 1, round(sim, 3), status=status(o, verdict)))
@@ -135,6 +139,16 @@ def watchlist_links(data: DataPort, ipo_id: str, as_of: date,
         if o["entity_role"] == "company" and o["entity_id"]:
             by_company.setdefault(o["entity_id"], []).append(o)
     for n in named:
+        if n.role in PERSON_ROLES and n.entity_id:
+            # A promoter or director of an earlier issue whose company was named in an order.
+            key = n.entity_id.rsplit(":", 1)[1]
+            for past in data.run("person_past_ipos", person_key=key, as_of=as_of).rows:
+                if past["ipo_id"] == ipo_id:
+                    continue
+                for o in by_company.get(f"ent:company:{past['ipo_id']}", []):
+                    add(Link(n, o, 2, 1.0, via=f"{past['company']} ({past['ipo_id']}, as {past['role']})",
+                             status=status(o, "auto-merge")))
+            continue
         if n.role != "banker" or not n.entity_id:
             continue
         banker_id = int(n.entity_id.rsplit(":", 1)[1])
@@ -147,9 +161,13 @@ def watchlist_links(data: DataPort, ipo_id: str, as_of: date,
     return list(links.values())
 
 
-# An order's banker row can only be a banker; its company row only an issuer.
-# People and other firms may appear under any role.
-_STRICT_ROLES = {"banker": {"banker"}, "company": {"company"}}
+# An order's banker row can only be a banker; its company row only an issuer; a
+# promoter or director only a person named in the order. Other firms may appear
+# under any role.
+PERSON_ROLES = {"promoter", "director", "person"}
+PERSON_MATCH_AT = 0.95      # people share names far more than firms do
+_STRICT_ROLES = {"banker": {"banker"}, "company": {"company"},
+                 "promoter": {"person"}, "director": {"person"}}
 
 
 def _roles_compatible(party_role: str, order_role: str) -> bool:

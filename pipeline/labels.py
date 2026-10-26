@@ -108,19 +108,26 @@ def adjustment_factor(conn, exchange: str, symbol: str, after: str, through: str
 
 
 def sebi_actions(conn) -> dict[str, str]:
-    """Label B: the first SEBI order after listing naming the company.
-
-    Filled once the SEBI stage has mapped order entities to IPO companies;
-    until then every IPO has sebi_action = 0.
-    """
-    return {r["ipo_id"]: r["first_order"] for r in conn.execute(
-        """SELECT i.ipo_id, min(o.order_date) AS first_order
-           FROM ipos i
-           JOIN entity_alias a ON a.entity_id = 'ent:company:' || i.ipo_id
-           JOIN sebi_order_entity e ON e.entity_id = a.entity_id
-           JOIN sebi_orders o ON o.order_id = e.order_id
-           WHERE o.order_date > i.listing_date AND e.reviewed = 1
-           GROUP BY i.ipo_id""")}
+    """Label B: the first SEBI order after listing naming the company or its promoters
+    or directors (data guide section 11), from reviewed links only."""
+    rows = conn.execute(
+        """SELECT ipo_id, min(order_date) AS first_order FROM (
+             SELECT i.ipo_id, o.order_date, i.listing_date
+             FROM ipos i
+             JOIN entity_alias a ON a.entity_id = 'ent:company:' || i.ipo_id
+             JOIN sebi_order_entity e ON e.entity_id = a.entity_id
+             JOIN sebi_orders o ON o.order_id = e.order_id
+             WHERE e.reviewed = 1
+             UNION ALL
+             SELECT i.ipo_id, o.order_date, i.listing_date
+             FROM ipos i
+             JOIN ipo_people p ON p.ipo_id = i.ipo_id
+             JOIN sebi_order_entity e ON e.entity_id = 'ent:person:' || p.person_key
+             JOIN sebi_orders o ON o.order_id = e.order_id
+             WHERE e.reviewed = 1)
+           WHERE order_date > listing_date
+           GROUP BY ipo_id""")
+    return {r["ipo_id"]: r["first_order"] for r in rows}
 
 
 def explain(conn, ipo_id: str) -> str:

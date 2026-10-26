@@ -35,8 +35,8 @@ class Watchlist(Agent):
                                                           "status": link.status})
             if not link.confirmed:
                 how = (f"named in SEBI order {o['order_id']} ({o['order_date']})" if link.hop == 1
-                       else f"led {link.via}, which is named in SEBI order {o['order_id']} "
-                            f"({o['order_date']})")
+                       else f"{'led' if link.named.role == 'banker' else 'was behind'} {link.via}, "
+                            f"which is named in SEBI order {o['order_id']} ({o['order_date']})")
                 why = ("the name is a near match only" if link.status == "near_match"
                        else "the link has not been reviewed yet")
                 case.add_question(f"{link.named.name} ({link.named.role}) appears to be {how}; "

@@ -27,7 +27,7 @@ TABLES = ["ipos", "bankers", "banker_alias", "ipo_banker", "trading_days", "pric
           "corp_actions", "labels", "sebi_orders", "sebi_order_entity", "entities",
           "entity_alias", "entity_edge", "docs", "facts", "features",
           "auditors", "auditor_alias", "ipo_auditor", "market_makers", "mm_alias",
-          "ipo_market_maker", "registrars", "registrar_alias"]
+          "ipo_market_maker", "registrars", "registrar_alias", "ipo_people"]
 PG_TYPES = {"INTEGER": "BIGINT", "REAL": "DOUBLE PRECISION", "TEXT": "TEXT", "": "TEXT"}
 # Postgres route: one database per Zetaris source (<db>_archive, <db>_live,
 # <db>_prices), tables in `public`, because Zetaris discovers only `public`.
@@ -151,6 +151,8 @@ def build_sample(ctx: StageContext) -> int:
         "features": "SELECT * FROM src.features WHERE ipo_id IN (SELECT ipo_id FROM keep)",
         # Every auditor link: an auditor's track record must match a live run.
         "ipo_auditor": "SELECT * FROM src.ipo_auditor",
+        # Everyone's people: a promoter's earlier issues (watchlist hop 2) must match a live run.
+        "ipo_people": "SELECT * FROM src.ipo_people",
         "ipo_market_maker": "SELECT * FROM src.ipo_market_maker WHERE ipo_id IN "
                             "(SELECT ipo_id FROM keep)",
         "facts": "SELECT * FROM src.facts WHERE ipo_id IN (SELECT ipo_id FROM keep)",
