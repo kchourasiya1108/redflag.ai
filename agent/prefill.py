@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import date
 
 from pydantic import BaseModel
@@ -24,6 +25,8 @@ from pydantic import BaseModel
 from agent.config import Settings
 from pipeline import offer_docs
 from pipeline.common import names as namelib
+
+AI_BUDGET_S = 30.0       # an upload never waits longer than this for the model
 
 FIELDS = ("company", "open_date", "issue_price", "exchange", "lead_managers", "registrar",
           "market_maker", "auditor", "lot_size")
@@ -58,10 +61,17 @@ def prefill(cfg: Settings, record: dict, pages: list[str], *, fetcher=None, gate
           or known_bankers(cfg, pages)}, "rhp")
     missing = [k for k in FIELDS if k not in fields]
     if gateway is not None and missing:
+        # In a thread with a budget: a slow or failing model never holds up the check.
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="prefill-ai")
+        future = pool.submit(ai_cover, gateway, pages, missing)
         try:
-            take(ai_cover(gateway, pages, missing), "ai")
+            take(future.result(timeout=AI_BUDGET_S), "ai")
+        except FutureTimeout:
+            notes.append(f"AI cover read gave no answer within {AI_BUDGET_S:.0f} s")
         except Exception as e:      # no model, or a bad reply: keep what we have
             notes.append(f"AI cover read skipped: {type(e).__name__}")
+        finally:
+            pool.shutdown(wait=False)
     return fields, prov, notes
 
 

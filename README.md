@@ -113,10 +113,15 @@ TypeScript adapters:
 
 Two ways in, both on the home page:
 
-- **Upload the RHP.** Drop the PDF; the cover is read without a model
-  (company, bid date, price, exchange, lead managers, registrar, market maker,
-  auditor) and the investor confirms or fills in the rest. Book-built RHPs
-  print the price as [●], so the top of the price band is entered by hand.
+- **Upload the RHP.** The PDF is the only input; the check starts by itself.
+  Each detail (company, bid date, price, exchange, lead managers, registrar,
+  market maker, auditor, lot) is filled from the most trusted source, which
+  the details page shows: our archive (matched by CIN or name), the exchange
+  (NSE's APIs, BSE SME's public-issues page), the cover read in code, then
+  Nemotron for anything still missing, kept only when its verbatim quote is
+  on the cover (`agent/prefill.py`, at most 30 s). A book-built RHP prints
+  the price as [●]; until the exchange shows the band, the check runs without
+  it and the insider-discount check says it is waiting for the price.
 - **Pick from the list.** "Open and upcoming SME IPOs" lists issues found on
   NSE Emerge (the upcoming-issues API, SME series) and BSE SME (offer
   documents with an RHP but no allotment yet), with their RHPs already loaded

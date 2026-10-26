@@ -205,3 +205,19 @@ def test_auto_mode_runs_offline_when_live_services_are_down(client, rhp_pdf, mon
     state = _wait(client, run_id)
     assert state["status"] == "success"
     assert "offline" in state["result"]["output"]["data_source"] or "sample" in state["result"]["output"]["data_source"]
+
+
+def test_a_slow_model_never_holds_up_the_upload(sample_cfg, monkeypatch):  # noqa: F811
+    import time as _time
+    from agent import prefill
+    monkeypatch.setattr(prefill, "AI_BUDGET_S", 0.2)
+
+    class Slow:
+        def generate(self, *a, **k):
+            _time.sleep(2)
+
+    t0 = _time.time()
+    fields, _, notes = prefill.prefill(sample_cfg, {"detected": {"company": "Acme Limited"}},
+                                       ["\n".join(COVER)], gateway=Slow())
+    assert _time.time() - t0 < 1.5 and fields["company"] == "Acme Limited"
+    assert any("no answer" in n for n in notes)
