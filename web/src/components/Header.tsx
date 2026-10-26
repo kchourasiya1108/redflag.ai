@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { api } from "../api";
 import type { Status } from "../types";
-import { Link, cx, useInterval } from "../lib";
+import { Link, useInterval } from "../lib";
 
 function Logo() {
   return (
@@ -24,51 +24,6 @@ export function useStatus() {
   return status;
 }
 
-function Indicator({ ok, configured }: { ok?: boolean; configured: boolean }) {
-  return <span className={cx("dot", !configured ? "dot-off" : ok ? "dot-ok" : "dot-bad")} />;
-}
-
-/** Live service health, for the technical section of "How we rate". */
-export function ServiceDetails({ status }: { status: Status | null }) {
-  if (!status) return <p className="small muted">Checking the live services…</p>;
-  const z = status.zetaris, m = status.meterless;
-  return (
-    <div className="stack">
-      <div className="stack-sm">
-        <div className="between">
-          <div className="row"><Indicator configured={z.configured} ok={z.ok} /><b>Zetaris Lightning</b></div>
-          <span className="small faint">{z.ok ? `${z.latency_ms} ms` : z.configured ? "unreachable" : "not configured"}</span>
-        </div>
-        <p className="small muted">The data layer: the IPO archive, filings, SEBI orders and prices over SQL.</p>
-        {z.error && <p className="tiny mono" style={{ color: "var(--high-text)" }}>{z.error}</p>}
-      </div>
-      <div className="divider" />
-      <div className="stack-sm">
-        <div className="between">
-          <div className="row"><Indicator configured={m.configured} ok={m.ok} /><b>Meterless Nightshift</b></div>
-          <span className="small faint">{m.ok ? `${m.models} models` : m.configured ? "unreachable" : "not configured"}</span>
-        </div>
-        <p className="small muted">The model gateway that serves NVIDIA Nemotron.</p>
-        {m.roles && Object.entries(m.roles).map(([role, model]) => (
-          <div key={role} className="between tiny"><span className="faint">{role}</span><span className="mono">{model.replace("nvidia/", "")}</span></div>
-        ))}
-        {m.error && <p className="tiny mono" style={{ color: "var(--high-text)" }}>{m.error}</p>}
-      </div>
-    </div>
-  );
-}
-
-/** One quiet line for the footer: can a fresh check run right now? */
-export function LiveIndicator({ status }: { status: Status | null }) {
-  const ok = !!(status?.zetaris.ok && status?.meterless.ok);
-  return (
-    <Link to="/how#technology" className="row small" title="Service details">
-      <span className={cx("dot", !status ? "dot-off" : ok ? "dot-ok" : "dot-bad")} />
-      <span className="faint">{!status ? "Checking live data…" : ok ? "Live data connected" : "Live data offline: saved reports still work"}</span>
-    </Link>
-  );
-}
-
 function ThemeToggle() {
   const [theme, setTheme] = useState<string | null>(() => {
     try { return localStorage.getItem("rf-theme"); } catch { return null; }
@@ -88,15 +43,14 @@ function ThemeToggle() {
 
 export function Header({ path }: { path: string }) {
   const nav = [
-    { to: "/", label: "Check an IPO", match: (p: string) => p === "/" || p.startsWith("/ipo") },
-    { to: "/reports", label: "Reports", match: (p: string) => p.startsWith("/run") || p.startsWith("/report") },
-    { to: "/track-record", label: "Track record", match: (p: string) => p.startsWith("/track-record") || p.startsWith("/backtest") },
-    { to: "/how", label: "How we rate", match: (p: string) => p.startsWith("/how") },
+    { to: "/", label: "Check an IPO", match: (p: string) => p === "/" || p.startsWith("/ipo") || p.startsWith("/upload") },
+    { to: "/reports", label: "My reports", match: (p: string) => p.startsWith("/run") || p.startsWith("/report") },
+    { to: "/how", label: "How it works", match: (p: string) => p.startsWith("/how") || p.startsWith("/track-record") || p.startsWith("/backtest") },
   ];
   return (
     <header className="topbar">
       <div className="container">
-        <Link to="/" className="brand"><Logo /> RedFlag <span className="tag">SME IPO checker</span></Link>
+        <Link to="/" className="brand"><Logo /> RedFlag </Link>
         <nav className="nav" aria-label="Main">
           {nav.map((n) => (
             <Link key={n.to} to={n.to} className={n.match(path) ? "active" : undefined}>{n.label}</Link>

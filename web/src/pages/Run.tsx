@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  AlertOctagon, Brain, Check, ChevronLeft, Cpu, Database, Loader2, RotateCcw, Timer,
+  AlertOctagon, Check, ChevronLeft, Loader2, RotateCcw,
 } from "lucide-react";
 import { api } from "../api";
 import { Report } from "./Report";
-import { Card, ErrorBox, SeverityBadge, Skeleton, Stat } from "../components/ui";
+import { Card, ErrorBox, SeverityBadge, Skeleton } from "../components/ui";
 import type { CaseFile, Explain, RunState, TraceEvent } from "../types";
 import { FLAGS, Link, cx, navigate, useInterval } from "../lib";
 import { titleCase } from "./Home";
@@ -82,13 +82,13 @@ export function RunPage({ id }: { id: string }) {
   if (!state) return <div className="container stack"><Skeleton h={34} w={360} /><Skeleton h={240} /></div>;
 
   if (state.status === "running") return <LiveRun state={state} events={events} />;
-  if (state.status === "error") return <FailedRun state={state} events={events} />;
+  if (state.status === "error") return <FailedRun state={state} />;
   if (!state.result || !extra) return <div className="container stack"><Skeleton h={34} w={360} /><Skeleton h={240} /></div>;
   return <Report result={state.result} cf={extra.cf} explain={extra.explain} trace={events} />;
 }
 
 function BackLink() {
-  return <Link to="/reports" className="small row"><ChevronLeft size={14} /> Reports</Link>;
+  return <Link to="/reports" className="small row"><ChevronLeft size={14} /> My reports</Link>;
 }
 
 export function useRunStats(events: TraceEvent[]) {
@@ -147,10 +147,9 @@ function LiveRun({ state, events }: { state: RunState; events: TraceEvent[] }) {
     <div className="container stack-lg narrow">
       <div className="stack-sm">
         <BackLink />
-        <div className="row-wrap"><span className="pill"><span className="dot dot-live" /> Checking</span></div>
-        <h1>{company ?? state.ipo_id}</h1>
+        <h1>{company ?? "Checking…"}</h1>
         <p className="muted">
-          {state.sample_mode ? "Replaying a saved check. This takes a few seconds." : "This usually takes about 3 minutes. You can leave this page open; the report appears here when it is ready."}
+          {state.sample_mode ? "This takes a few seconds." : "This usually takes about 3 minutes. Keep this page open; the report appears here when it is ready."}
         </p>
       </div>
 
@@ -158,7 +157,7 @@ function LiveRun({ state, events }: { state: RunState; events: TraceEvent[] }) {
         <div className="stack">
           <div className="between small">
             <span className="muted">{activeIdx >= 0 ? PHASES[activeIdx].doing : "Finishing up"}…</span>
-            <span className="mono faint">{Math.floor(elapsed / 60)}:{String(Math.floor(elapsed % 60)).padStart(2, "0")}</span>
+            <span className="faint tabular">{Math.floor(elapsed / 60)}:{String(Math.floor(elapsed % 60)).padStart(2, "0")}</span>
           </div>
           <div className="progress" aria-label={`About ${Math.round(progress * 100)}% done`}><div style={{ width: `${Math.max(4, progress * 100)}%` }} /></div>
           <ol className="phases">
@@ -180,72 +179,25 @@ function LiveRun({ state, events }: { state: RunState; events: TraceEvent[] }) {
         </div>
       </Card>
 
-      {quiet > 20 && (
-        <div className="callout">
-          <Loader2 size={18} className="spin" />
-          <div className="small">
-            Still working. {lastDone < 4
-              ? "Fetching records can take up to a minute when the data service is busy."
-              : "Reading long prospectus sections can take a minute or more."}
+      {quiet > 20 && <p className="small faint">Still working: {lastDone < 4 ? "looking up records can take up to a minute." : "long prospectus sections take a minute or more to read."}</p>}
+
+      {concerns.length > 0 && (
+        <Card title="Concerns found so far" hint="Some may still be explained away before the report">
+          <div className="stack-sm">
+            {concerns.map(([f, s]) => (
+              <div className="between" key={f}>
+                <span className="small"><b>{FLAGS[f]?.title ?? f}</b><div className="faint tiny">{FLAGS[f]?.what}</div></span>
+                <SeverityBadge level={s} kind="concern" />
+              </div>
+            ))}
           </div>
-        </div>
+        </Card>
       )}
-
-      <Card title="Concerns found so far" hint="Before each one is challenged, so some may still be explained away">
-        {concerns.length === 0
-          ? <p className="small muted">None yet.</p>
-          : (
-            <div className="stack-sm">
-              {concerns.map(([f, s]) => (
-                <div className="between" key={f}>
-                  <span className="small"><b>{FLAGS[f]?.title ?? f}</b><div className="faint tiny">{FLAGS[f]?.what}</div></span>
-                  <SeverityBadge level={s} kind="concern" />
-                </div>
-              ))}
-            </div>
-          )}
-      </Card>
-
-      <details className="disclosure">
-        <summary>Technical log ({events.length} steps)</summary>
-        <TechLog events={events} live />
-      </details>
     </div>
   );
 }
 
-export function TechLog({ events, live }: { events: TraceEvent[]; live?: boolean }) {
-  const stats = useRunStats(events);
-  const feed = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = feed.current;
-    if (live && el && el.scrollHeight - el.scrollTop - el.clientHeight < 120) el.scrollTop = el.scrollHeight;
-  }, [events.length, live]);
-  return (
-    <div className="stack" style={{ marginTop: 12 }}>
-      <div className="grid-4">
-        <Stat icon={<Database size={13} />} label="Zetaris queries" value={stats.queries.length} />
-        <Stat icon={<Brain size={13} />} label="Nemotron calls" value={stats.calls.length} sub={`${(stats.tokens / 1000).toFixed(1)}k tokens${stats.retries ? ` · ${stats.retries} retries` : ""}`} />
-        <Stat icon={<Cpu size={13} />} label="Engines" value={stats.markovian + stats.hmem} sub={`Markovian ${stats.markovian} · H-MEM ${stats.hmem}`} />
-        <Stat icon={<Timer size={13} />} label="Events" value={events.length} />
-      </div>
-      <div className="card">
-        <div className="feed" ref={feed}>
-          {events.filter((e) => e.action !== "transition").map((e, i) => (
-            <div key={i} className={cx("feed-item", (e.status === "error" || e.status === "errored") && "err")}>
-              <span className="ts">{e.timestamp.slice(11, 19)}</span>
-              <span className="who">{e.agent_name}</span>
-              <span className="msg">{e.output_summary}</span>
-            </div>
-          ))}
-          {!events.length && <div className="empty small"><Loader2 className="spin" size={18} /> Waiting for the first step…</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FailedRun({ state, events }: { state: RunState; events: TraceEvent[] }) {
+function FailedRun({ state }: { state: RunState }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const retry = async (sample: boolean) => {
@@ -270,23 +222,15 @@ function FailedRun({ state, events }: { state: RunState; events: TraceEvent[] })
             {dataDown
               ? "Our data service did not respond, so we stopped rather than rate the IPO on incomplete information."
               : state.error?.recoverable ? "Something went wrong part-way through. This is usually temporary." : "Something went wrong that a retry will not fix."}
-            {!state.sample_mode && " You can try again, or replay the saved check if one exists."}
           </p>
           {err && <ErrorBox error={err} />}
           <div className="row-wrap">
             {state.error?.recoverable && <button className="btn btn-primary" onClick={() => retry(!!state.sample_mode)} disabled={busy}><RotateCcw size={15} /> Try again</button>}
-            {!state.sample_mode && <button className="btn" onClick={() => retry(true)} disabled={busy}>Use saved data instead</button>}
+            {!state.sample_mode && <button className="btn" onClick={() => retry(true)} disabled={busy}>Run a quick offline check</button>}
             <Link to={`/ipo/${state.ipo_id}`} className="btn btn-ghost">Back to the IPO</Link>
           </div>
         </div>
       </Card>
-      <details className="disclosure">
-        <summary>Technical details</summary>
-        <div className="stack" style={{ marginTop: 12 }}>
-          <div className="callout err small"><div><b>{state.error?.type}</b>: {state.error?.message}</div></div>
-          {events.length > 0 && <TechLog events={events} />}
-        </div>
-      </details>
     </div>
   );
 }

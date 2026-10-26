@@ -89,22 +89,19 @@ const LABELS: Record<string, string> = {
 };
 
 /** Confirm what was read from the cover, then start the check. */
-export function UploadPage({ id, status }: { id: string; status: Status | null }) {
+export function UploadPage({ id }: { id: string; status?: Status | null }) {
   const { data, error, loading } = useAsync(() => api.ipo(id), [id]);
   if (loading && !data) return <div className="container stack"><Skeleton h={34} w={360} /><Skeleton h={320} /></div>;
   if (error) return <div className="container"><ErrorBox error={error} /></div>;
   if (!data?.upload) return <div className="container"><ErrorBox error="This upload was not found." /></div>;
-  return <UploadDetails upload={data.upload} runs={data.runs} status={status} />;
+  return <UploadDetails upload={data.upload} runs={data.runs} />;
 }
 
-function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs: import("../types").RunSummary[]; status: Status | null }) {
+function UploadDetails({ upload: initial, runs }: { upload: Upload; runs: import("../types").RunSummary[] }) {
   const [up, setUp] = useState(initial);
   const [form, setForm] = useState<UploadFields>(initial.fields);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const liveReady = !!(status?.zetaris.ok && status?.meterless.ok);
-  const [offline, setOffline] = useState(false);
-  const useOffline = offline || (!!status && !liveReady);
 
   const set = <K extends keyof UploadFields>(k: K, v: UploadFields[K]) => setForm((f) => ({ ...f, [k]: v }));
   const gaps = up.required.filter((k) => {
@@ -127,7 +124,7 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
       const saved = await api.editUpload(up.upload_id, changes);
       setUp(saved);
       if (saved.missing.length) throw new Error(`Please fill in: ${saved.missing.map((m) => LABELS[m] ?? m).join(", ")}`);
-      const r = offline ? await api.start(up.upload_id, true) : await api.check(up.upload_id);
+      const r = await api.check(up.upload_id);
       navigate(`/run/${r.run_id}`);
     } catch (e) {
       const msg = (e as Error).message;
@@ -161,10 +158,10 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
             : <>Uploaded {up.filename} · {up.pages} pages</>}
         </div>
         <h1>{titleCase(form.company) || "Your prospectus"}</h1>
-        <p className="muted">These are the details we used, filled in from {up.source ? "the exchange and the RHP" : "the RHP, our archive and the exchange"}. You don't need to change anything; correct a value only if it is wrong, then check again.</p>
+        <p className="muted">We filled these in for you. Change a value only if it is wrong.</p>
       </div>
 
-      <Card title="Issue details" hint="Under each field: where the value came from">
+      <Card title="Issue details">
         <div className="form-grid">
           <Field label={LABELS.company} source={src("company")} wide>
             <input value={form.company ?? ""} onChange={(e) => set("company", e.target.value)} placeholder="e.g. Acme Industries Limited" />
@@ -182,10 +179,7 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
               ))}
             </div>
           </Field>
-          <Field label={LABELS.lot_size} source={src("lot_size")}>
-            <input type="number" min="1" step="1" value={form.lot_size ?? ""} onChange={(e) => set("lot_size", e.target.value === "" ? undefined : Number(e.target.value))} />
-          </Field>
-          <Field label={LABELS.lead_managers} source={src("lead_managers")} wide hint="We look up each lead manager's past SME IPOs">
+          <Field label={LABELS.lead_managers} source={src("lead_managers")} wide>
             <div className="stack-sm">
               {managers.map((m, i) => (
                 <div className="row" key={i}>
@@ -196,16 +190,24 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
               {managers.length < 4 && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: "flex-start" }} onClick={() => set("lead_managers", [...managers, ""])}><Plus size={14} /> Add another</button>}
             </div>
           </Field>
-          <Field label={LABELS.auditor} source={src("auditor")}>
-            <input value={form.auditor ?? ""} onChange={(e) => set("auditor", e.target.value)} />
-          </Field>
-          <Field label={LABELS.registrar} source={src("registrar")}>
-            <input value={form.registrar ?? ""} onChange={(e) => set("registrar", e.target.value)} />
-          </Field>
-          <Field label={LABELS.market_maker} source={src("market_maker")}>
-            <input value={form.market_maker ?? ""} onChange={(e) => set("market_maker", e.target.value)} />
-          </Field>
         </div>
+        <details className="disclosure" style={{ marginTop: 16 }}>
+          <summary>More details</summary>
+          <div className="form-grid" style={{ marginTop: 14 }}>
+            <Field label={LABELS.lot_size} source={src("lot_size")}>
+              <input type="number" min="1" step="1" value={form.lot_size ?? ""} onChange={(e) => set("lot_size", e.target.value === "" ? undefined : Number(e.target.value))} />
+            </Field>
+            <Field label={LABELS.auditor} source={src("auditor")}>
+              <input value={form.auditor ?? ""} onChange={(e) => set("auditor", e.target.value)} />
+            </Field>
+            <Field label={LABELS.registrar} source={src("registrar")}>
+              <input value={form.registrar ?? ""} onChange={(e) => set("registrar", e.target.value)} />
+            </Field>
+            <Field label={LABELS.market_maker} source={src("market_maker")}>
+              <input value={form.market_maker ?? ""} onChange={(e) => set("market_maker", e.target.value)} />
+            </Field>
+          </div>
+        </details>
       </Card>
 
       <Card>
@@ -216,17 +218,7 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
             {saving ? <Loader2 size={17} className="spin" /> : <Search size={17} />}
             {saving ? "Starting…" : runs.length ? "Check again" : "Check this IPO"}
           </button>
-          <p className="small faint" style={{ textAlign: "center", marginTop: -6 }}>
-            {useOffline ? "Offline check against our archive, without the AI reading steps" : "Usually takes about 3 minutes"}
-          </p>
-          <details className="disclosure">
-            <summary>Check options</summary>
-            <label className="row small" style={{ marginTop: 10 }}>
-              <input type="checkbox" checked={useOffline} disabled={!!status && !liveReady} onChange={(e) => setOffline(e.target.checked)} />
-              Offline check: use the local archive and skip the AI reading steps
-              {status && !liveReady && <span className="faint">(live data is offline right now)</span>}
-            </label>
-          </details>
+          <p className="small faint" style={{ textAlign: "center", marginTop: -6 }}>Usually takes about 3 minutes</p>
         </div>
       </Card>
 
@@ -236,7 +228,7 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
           <ReportList runs={runs} />
         </section>
       )}
-      <p className="tiny faint">{up.source ? "Downloaded from the exchange's offer documents." : "Your file is stored on this RedFlag server only, to show the pages behind each finding."} Checked as of {form.open_date ? date(upcoming ? new Date().toISOString().slice(0, 10) : form.open_date) : "the bid date"}.</p>
+
     </div>
   );
 }
@@ -299,17 +291,15 @@ export function UpcomingIpos() {
     <section>
       <div className="section-title">
         <h2>Open and upcoming SME IPOs</h2>
-        <span className="row small faint" style={{ gap: 10 }}>
-          {data?.last?.refreshed_at ? `Updated ${ago(data.last.refreshed_at)}` : "Not loaded yet"}
-          <button className="btn btn-sm" onClick={refresh} disabled={refreshing}>
-            <RefreshCw size={13} className={refreshing ? "spin" : undefined} /> {refreshing ? "Checking the exchanges…" : "Refresh"}
-          </button>
-        </span>
+        <button className="btn btn-sm btn-ghost" onClick={refresh} disabled={refreshing}
+          title={data?.last?.refreshed_at ? `Updated ${ago(data.last.refreshed_at)}` : "Not loaded yet"}>
+          <RefreshCw size={13} className={refreshing ? "spin" : undefined} /> {refreshing ? "Checking NSE and BSE…" : "Refresh"}
+        </button>
       </div>
       {items.length === 0 ? (
         <div className="card"><div className="empty small">
-          {refreshing ? "Looking for new SME IPOs on NSE Emerge and BSE SME and downloading their RHPs…"
-            : "No open or upcoming SME IPOs found yet. Press Refresh to check NSE Emerge and BSE SME, or upload an RHP above."}
+          {refreshing ? "Looking for new SME IPOs on NSE Emerge and BSE SME…"
+            : "None right now. Press Refresh to check NSE Emerge and BSE SME again."}
         </div></div>
       ) : (
         <div className="card report-list">
@@ -333,7 +323,7 @@ export function UpcomingIpos() {
           })}
         </div>
       )}
-      {data?.error && <p className="small faint" style={{ marginTop: 8 }}>The last refresh failed: {data.error}</p>}
+      {data?.error && <p className="small faint" style={{ marginTop: 8 }}>Couldn't reach the exchanges just now. Try Refresh again in a minute.</p>}
     </section>
   );
 }

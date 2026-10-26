@@ -1,6 +1,5 @@
-import { Header, LiveIndicator, useStatus } from "./components/Header";
+import { Header, useStatus } from "./components/Header";
 import { Empty } from "./components/ui";
-import { BacktestPage } from "./pages/Backtest";
 import { Home } from "./pages/Home";
 import { HowPage } from "./pages/How";
 import { IpoPage } from "./pages/Ipo";
@@ -19,8 +18,8 @@ export function App() {
   else if (seg[0] === "ipo" && seg[1]) page = <IpoPage id={seg[1]} status={status} />;
   else if (seg[0] === "run" && seg[1]) page = <RunPage id={seg[1]} />;
   else if (seg[0] === "runs" || seg[0] === "reports") page = <RunsPage />;
-  else if (seg[0] === "backtest" || seg[0] === "track-record") page = <BacktestPage />;
-  else if (seg[0] === "how") page = <HowPage status={status} />;
+  else if (seg[0] === "backtest" || seg[0] === "track-record") page = <HowPage section="track-record" />;
+  else if (seg[0] === "how") page = <HowPage />;
   else page = <div className="container"><Empty title="Page not found"><Link to="/">Back to the IPO search</Link></Empty></div>;
   return (
     <div className="app">
@@ -28,8 +27,8 @@ export function App() {
       <main key={seg.slice(0, 2).join("/")}>{page}</main>
       <footer className="footer">
         <div className="container between" style={{ flexWrap: "wrap" }}>
-          <span>RedFlag rates risk and shows its evidence. It is not investment advice and never says buy, sell or apply.</span>
-          <LiveIndicator status={status} />
+          <span>RedFlag rates risk and shows its evidence. It is not investment advice.</span>
+          <span>Powered by Zetaris and NVIDIA Nemotron</span>
         </div>
       </footer>
     </div>

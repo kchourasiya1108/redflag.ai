@@ -78,7 +78,6 @@ export function IpoSearch({ autoFocus }: { autoFocus?: boolean }) {
               <span className="name">{titleCase(r.company)}</span>
               <span className="side">
                 {r.recorded && <span className="pill">Example</span>}
-                {!r.has_rhp && <span className="pill" title="Prospectus text is not on file: the check uses the people involved and track records only">No prospectus</span>}
                 <span className="pill">{r.exchange.replace(" Emerge", "").replace("BSE SME", "BSE")}</span>
               </span>
               <span className="sub">

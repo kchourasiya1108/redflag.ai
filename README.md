@@ -140,18 +140,20 @@ against the local archive without model calls.
 
 ## Web app
 
-A React frontend (`web/`, Vite + TypeScript) served by the FastAPI app,
-written for investors rather than developers. Search the 693 archived IPOs,
-check one (a fresh live check, or an instant replay of saved data under
-"Check options"), follow plain-language progress, then read the report:
-the risk rating as odds out of 100, the concerns with why each matters and
-how it held up when challenged, questions to ask before bidding, what looked
-fine and what could not be checked. Every cited prospectus page, SEBI order
-and data lookup opens in a side panel. Financials open with an at-a-glance
-view (sales, profit, cash from operations); "Track record" explains the
-backtest in plain terms. Agents, Zetaris and Nemotron details, the trace and
-the full metrics sit behind "Technical details" and "For analysts"
-disclosures.
+A React frontend (`web/`, Vite + TypeScript) served by the FastAPI app, for
+investors: three pages (Check an IPO, My reports, How it works).
+
+- **Home:** the RHP upload box, open and upcoming SME IPOs with a Check
+  button, and three example reports.
+- **Report:** the rating and the chance of a bad outcome; "in short"; each
+  concern with why it matters, its source (prospectus page or SEBI order) and
+  whether it held up when challenged; questions to ask before bidding; the
+  issue's key facts. Passed and unchecked items fold away; Financials and
+  "Why this rating" are tabs.
+- **How it works:** the steps, what we look for, the track record and our rules.
+
+Agents, traces, data sources and full metrics are not shown in the web app;
+they remain in the API (`/api/runs/{id}/trace`, `/case`, `/api/backtest`).
 
 ```bash
 cd web && npm install && npm run build && cd ..   # once, and after frontend changes

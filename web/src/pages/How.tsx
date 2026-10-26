@@ -1,114 +1,91 @@
 import { useEffect } from "react";
-import { Brain, Database, FileSearch, Gavel, Layers, Lock, Scale, Sparkles, Target } from "lucide-react";
-import { Card } from "../components/ui";
-import { ServiceDetails } from "../components/Header";
-import type { Status } from "../types";
-import { STAGES } from "./Run";
-import { FLAGS, Link } from "../lib";
+import { FileSearch, Gavel, Scale, Target } from "lucide-react";
+import { api } from "../api";
+import { Card, Stat } from "../components/ui";
+import type { Metrics } from "../types";
+import { FLAGS, pct, useAsync } from "../lib";
+import { hitRates } from "./Home";
 
-const LLM = new Set(["Extractor", "NarrativeReader", "Skeptic", "Reporter"]);
 const NOT_YET = new Set(["F12", "F13", "F14"]);
 
 const STEPS = [
-  { icon: <Gavel size={18} />, t: "Screen the people", d: "Everyone named in the issue (promoters, the lead manager, auditor, registrar, market maker) is checked against SEBI orders dated before the bid, and the lead manager's past SME IPOs are looked up." },
-  { icon: <FileSearch size={18} />, t: "Read the prospectus", d: "The restated financial statements are read and cross-checked: a year only counts if its figures add up. AI reads the share history, peer comparison, use of money and related-party sections." },
-  { icon: <Scale size={18} />, t: "Argue against ourselves", d: "Each concern is challenged: we look for an ordinary explanation in the prospectus, and drop or soften the concern if we find one." },
-  { icon: <Target size={18} />, t: "Rate the risk", d: "A rating model trained on how past SME IPOs turned out gives the chance of a bad outcome, and the rating band." },
+  { icon: <Gavel size={18} />, t: "Check the people", d: "Everyone named in the issue is checked against SEBI orders, and we look at how the lead manager's earlier SME IPOs did." },
+  { icon: <FileSearch size={18} />, t: "Read the prospectus", d: "We read the financial statements, the share history, the use of the money raised and dealings with related parties." },
+  { icon: <Scale size={18} />, t: "Argue against ourselves", d: "Every concern is challenged: if the prospectus gives an ordinary explanation, the concern is dropped or softened." },
+  { icon: <Target size={18} />, t: "Rate the risk", d: "A model trained on how past SME IPOs turned out gives the chance of a bad outcome." },
 ];
 
-export function HowPage({ status }: { status: Status | null }) {
+export function HowPage({ section }: { section?: string }) {
   useEffect(() => {
-    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
-  }, []);
+    const id = section ?? location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView();
+  }, [section]);
   return (
-    <div className="container stack-xl">
+    <div className="container stack-xl narrow">
       <div className="stack-sm">
-        <div className="eyebrow">How we rate</div>
-        <h1>A second pair of eyes on the prospectus.</h1>
-        <p className="muted" style={{ maxWidth: 720 }}>
-          SME IPOs have lighter rules than main-board issues, and a prospectus runs to hundreds of pages. RedFlag does the slow
-          reading for you, judges each IPO only on what was known the day its bid opened, and shows where every finding comes from.
+        <h1>How RedFlag checks an IPO</h1>
+        <p className="muted">
+          A prospectus runs to hundreds of pages. We do the slow reading, judge the IPO only on what is known before its bid
+          opens, and show you the page behind every finding.
         </p>
       </div>
 
-      <div className="checks-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+      <div className="steps">
         {STEPS.map((s, i) => (
-          <div className="check-tile" key={s.t}>
-            <div className="row"><div className="ic">{s.icon}</div><span className="faint small">Step {i + 1}</span></div>
-            <h3>{s.t}</h3>
-            <p className="small muted">{s.d}</p>
+          <div className="step-row" key={s.t}>
+            <div className="ic">{s.icon}</div>
+            <div><h3>{i + 1}. {s.t}</h3><p className="small muted">{s.d}</p></div>
           </div>
         ))}
       </div>
 
-      <Card title="What we check, and why it matters" pad={false}>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Check</th><th>Why it matters</th></tr></thead>
-            <tbody>
-              {Object.entries(FLAGS).map(([id, f]) => (
-                <tr key={id}>
-                  <td style={{ minWidth: 200 }}><b>{f.title}</b><div className="tiny faint">{f.what}</div>{NOT_YET.has(id) && <div className="tiny faint">Coming later: the data is not collected yet</div>}</td>
-                  <td className="small muted">{f.why}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <Card title={<span className="row"><Lock size={16} /> Rules we hold ourselves to</span>}>
-        <ul className="ticks small">
-          <li>Only information dated before the bid opened is used, so past IPOs are judged fairly.</li>
-          <li>To explain a concern away, we must point to a page of the prospectus; otherwise the concern stands.</li>
-          <li>A concern is only rated serious when a second, independent signal backs it up.</li>
-          <li>Financial figures that don't add up are shown but never used in the rating.</li>
-          <li>Any AI-written summary is published only if every number in it matches the prospectus data.</li>
-          <li>What we could not check is listed in every report, never silently skipped.</li>
-          <li>We never say buy, sell, apply or avoid. Being named in a SEBI order is not proof of wrongdoing.</li>
-        </ul>
-      </Card>
-
-      <Card title="What counts as a bad outcome">
-        <p className="small muted">
-          An IPO "went badly" if, within six months of listing, its share price fell sharply, trading was suspended, or the company
-          faced SEBI action. <Link to="/track-record">See how often our ratings got this right.</Link>
-        </p>
-      </Card>
-
-      <section id="technology" className="stack">
-        <h2>Under the hood</h2>
-        <div className="grid-3">
-          <Card title={<span className="row"><Database size={16} /> Zetaris Lightning</span>}>
-            <p className="small muted">The data layer. Every lookup is a named SQL query over the IPO archive, filings, SEBI orders and prices, and a leakage guard drops anything dated after the bid.</p>
-          </Card>
-          <Card title={<span className="row"><Brain size={16} /> NVIDIA Nemotron</span>}>
-            <p className="small muted">The AI models, served through Meterless Nightshift. They read table rows and narrative sections, argue each concern, and draft the summary. They never supply a number.</p>
-          </Card>
-          <Card title={<span className="row"><Layers size={16} /> Meterless engines</span>}>
-            <p className="small muted">Markovian reads long sections chunk by chunk; the World Model keeps one shared case file with a replayable log; H-MEM remembers prospectus layouts across checks.</p>
-          </Card>
-        </div>
-        <div className="grid-2">
-          <Card title="The thirteen agents" hint="Grey steps are plain code; AI steps are marked" pad={false}>
-            <ol className="pipeline" style={{ margin: 0, padding: 12, listStyle: "none" }}>
-              {STAGES.map((s, i) => (
-                <li key={s.agent} className="stage">
-                  <span className="icon"><span className="tiny">{i + 1}</span></span>
-                  <div>
-                    <div className="name row" style={{ gap: 8 }}>{s.name}{LLM.has(s.agent) && <span className="pill" style={{ height: 20, fontSize: 11 }}><Sparkles size={11} /> Nemotron</span>}</div>
-                    <div className="what">{s.what}</div>
-                  </div>
-                  <span />
-                </li>
-              ))}
-            </ol>
-          </Card>
-          <Card title="Live services" hint="Needed for a fresh check; saved reports and replays work without them">
-            <ServiceDetails status={status} />
-          </Card>
+      <section className="stack">
+        <h2>What we look for</h2>
+        <div className="look-for">
+          {Object.entries(FLAGS).filter(([id]) => !NOT_YET.has(id)).map(([id, f]) => (
+            <div key={id}><b>{f.title}</b><p className="small muted">{f.why}</p></div>
+          ))}
         </div>
       </section>
+
+      <TrackRecord />
+
+      <section className="stack">
+        <h2>Our rules</h2>
+        <ul className="ticks small">
+          <li>We only use information from before the bid opens.</li>
+          <li>A concern is only explained away if the prospectus itself explains it.</li>
+          <li>Figures that don't add up are never used in the rating.</li>
+          <li>Anything we couldn't check is listed in the report.</li>
+          <li>We never say buy, sell or apply. Being named in a SEBI order is not proof of wrongdoing.</li>
+        </ul>
+      </section>
     </div>
+  );
+}
+
+function TrackRecord() {
+  const { data } = useAsync(() => api.backtest(), []);
+  const r = data?.results;
+  if (!r) return <section id="track-record" />;
+  const m = r.model, rates = hitRates(m);
+  const llm = data?.llm_baseline as { metrics?: Metrics | null } | null;
+  return (
+    <section id="track-record" className="stack">
+      <h2>How accurate is it?</h2>
+      <p className="small muted">We tested the ratings on {r.split.test} past SME IPOs that the model had never seen, using only what was known on each bid date.</p>
+      <div className="grid-3">
+        <Stat label="When we said High risk" value={`${pct(rates.highHit, 0)} went badly`} sub={`against ${pct(rates.base, 0)} of all SME IPOs`} />
+        <Stat label="Bad IPOs flagged in advance" value={pct(m.recall_at_high, 0)} sub={`${Math.round(m.recall_at_high * m.adverse)} of ${m.adverse}`} />
+        <Stat label="False alarms" value={pct(m.false_alarm_rate, 0)} sub="of IPOs that did fine were rated High risk" />
+      </div>
+      <Card>
+        <p className="small muted">
+          A High risk rating means roughly {rates.base ? (rates.highHit / rates.base).toFixed(1) : "–"}× the usual chance of a bad outcome, not a certainty.
+          Use it to decide where to look harder.
+          {llm?.metrics && <> For comparison, asking an AI chatbot directly did no better than a coin flip on the same IPOs.</>}
+        </p>
+      </Card>
+    </section>
   );
 }
