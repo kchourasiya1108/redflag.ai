@@ -1,6 +1,7 @@
 import { ArrowRight, Banknote, Building2, Gavel, Landmark, PieChart, ReceiptIndianRupee, ShieldCheck } from "lucide-react";
 import { api } from "../api";
 import { IpoSearch } from "../components/Search";
+import { RecentUploads, UploadBox } from "./Upload";
 import { SeverityBadge, Skeleton } from "../components/ui";
 import type { Metrics, RunSummary } from "../types";
 import { Link, RATING_TEXT, ago, date, odds, pct, rupees, useAsync } from "../lib";
@@ -41,13 +42,16 @@ export function Home() {
     <div className="container stack-xl">
       <section className="hero">
         <div className="eyebrow">For investors in NSE Emerge and BSE SME IPOs</div>
-        <h1>Check an SME IPO for red flags before you bid.</h1>
+        <h1>Check an upcoming SME IPO for red flags before you bid.</h1>
         <p className="lede">
-          We read the prospectus, screen everyone involved against SEBI orders, and look at how the lead manager's
-          past IPOs did. You get a clear risk rating, the concerns behind it, and the exact page each one comes from.
+          Upload the red herring prospectus (RHP). We read it, screen everyone involved against SEBI orders, and look at
+          how the lead manager's past IPOs did. You get a clear risk rating, the concerns behind it, and the exact page each one comes from.
         </p>
-        <IpoSearch autoFocus />
-        <div className="small faint">Try a company name, a symbol, or a lead manager's name.</div>
+        <UploadBox />
+        <div className="stack-sm">
+          <div className="small faint">Or look up a past SME IPO by company, symbol or lead manager</div>
+          <IpoSearch />
+        </div>
       </section>
 
       {rates && m && (
@@ -114,6 +118,8 @@ export function Home() {
         </div>
       </section>
 
+      <RecentUploadsSection />
+
       {recent.length > 0 && (
         <section>
           <div className="section-title">
@@ -162,5 +168,14 @@ export function ReportList({ runs, loading }: { runs?: RunSummary[]; loading?: b
         </Link>
       ))}
     </div>
+  );
+}
+
+function RecentUploadsSection() {
+  return (
+    <section className="uploads-section">
+      <div className="section-title"><h2>Your uploaded prospectuses</h2></div>
+      <RecentUploads />
+    </section>
   );
 }

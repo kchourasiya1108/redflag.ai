@@ -227,6 +227,7 @@ data/archive.db
 data/archive.db-*
 data/failures.csv
 data/memory.db
+data/uploads/
 logs/
 output/
 data/publish/

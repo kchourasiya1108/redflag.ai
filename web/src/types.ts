@@ -19,7 +19,36 @@ export interface IpoRow {
   recorded: boolean;
 }
 
+export interface UploadFields {
+  company?: string;
+  open_date?: string;
+  issue_price?: number;
+  exchange?: string;
+  lead_managers?: string[];
+  registrar?: string;
+  market_maker?: string;
+  auditor?: string;
+  lot_size?: number;
+}
+
+export interface Upload {
+  upload_id: string;
+  filename: string;
+  sha256: string;
+  pages: number;
+  text_pages: number;
+  status: "ok" | "scanned";
+  uploaded_at: number;
+  detected: UploadFields & { price_source?: string | null; cin?: string | null; issue_type?: string | null };
+  fields: UploadFields;
+  missing: string[];
+  required: string[];
+  exchanges: string[];
+}
+
 export interface IpoDetail {
+  uploaded?: boolean;
+  upload?: Upload;
   ipo: Record<string, string | number | null>;
   docs: { doc_type: string; pages: number; text_pages: number; status: string; url: string }[];
   in_sample: boolean;

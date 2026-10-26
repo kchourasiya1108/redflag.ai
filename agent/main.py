@@ -80,7 +80,11 @@ def model_gateway(cfg: Settings, sample_mode: bool, tracer: Tracer):
     return gateway if gateway.providers or sample_mode else None
 
 
-def data_client(cfg: Settings, sample_mode: bool):
+def data_client(cfg: Settings, sample_mode: bool, ipo_id: str = ""):
+    if sample_mode and ipo_id.startswith("UP-") and cfg.archive_db.exists():
+        # An uploaded RHP has no saved check to replay: offline, it is checked
+        # against the whole local archive, with no model calls.
+        return MockZetaris(cfg.archive_db), "local archive (offline)"
     if sample_mode:
         return MockZetaris(cfg.data / "sample" / "archive_sample.db"), "sample (mock-sqlite)"
     if os.environ.get("ZETARIS_REST_URL") and os.environ.get("ZETARIS_API_KEY"):
@@ -155,7 +159,7 @@ def investigate(cfg: Settings, ipo_id: str, *, run_id: str | None = None,
                    if sample_mode is None else sample_mode)
     started = time.perf_counter()
     tracer = Tracer(run_id, cfg.logs)
-    client, source = data_client(cfg, sample_mode)
+    client, source = data_client(cfg, sample_mode, ipo_id)
     if isinstance(client, ZetarisRestClient):
         client.deadline = started + HARD_LIMIT_S - 30
     if gateway is None:

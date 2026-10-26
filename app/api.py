@@ -17,11 +17,13 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
+from agent import uploads
 from agent.config import settings
 from agent.main import RunError, investigate
 from agent.rhp import load_pages
@@ -94,6 +96,8 @@ def ipos(q: str = "", limit: int = 50, recorded: bool = False) -> dict:
 
 @router.get("/ipos/{ipo_id}")
 def ipo(ipo_id: str) -> dict:
+    if uploads.is_upload(ipo_id):
+        return _upload_detail(_upload(ipo_id))
     with _db() as conn:
         row = conn.execute("SELECT * FROM ipos WHERE ipo_id = ?", (ipo_id,)).fetchone()
         if row is None:
@@ -116,6 +120,11 @@ def ipo(ipo_id: str) -> dict:
 def rhp_page(ipo_id: str, page: int) -> dict:
     """One page of the IPO's RHP text, for the evidence viewer (rhp:pN)."""
     cfg = settings()
+    if uploads.is_upload(ipo_id):
+        pages = load_pages(cfg.cache / "pages", _upload(ipo_id)["sha256"])
+        if not 1 <= page <= len(pages):
+            raise HTTPException(404, f"the RHP has {len(pages)} pages")
+        return {"ipo_id": ipo_id, "page": page, "pages": len(pages), "text": pages[page - 1]}
     paths = [cfg.archive_db, cfg.data / "sample" / "archive_sample.db"]
     for db in (p for p in paths if p.exists()):
         with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
@@ -146,6 +155,70 @@ def sebi_order(order_id: str) -> dict:
     return {**dict(row), "named": named}
 
 
+# -- uploaded RHPs (upcoming IPOs) ---------------------------------------------
+
+def _upload(upload_id: str) -> dict:
+    record = uploads.load(settings(), upload_id)
+    if record is None:
+        raise HTTPException(404, f"unknown upload {upload_id}")
+    return record
+
+
+def _upload_view(record: dict) -> dict:
+    return {**record, "missing": uploads.missing(record), "required": list(uploads.REQUIRED),
+            "exchanges": list(uploads.EXCHANGES)}
+
+
+def _upload_detail(record: dict) -> dict:
+    """An upload in the shape of GET /ipos/{id}, so the IPO page can show it."""
+    f = record["fields"]
+    meta = {"ipo_id": record["upload_id"], "company": f.get("company") or record["filename"],
+            "exchange": f.get("exchange"), "symbol": "", "issue_price": f.get("issue_price"),
+            "lot_size": f.get("lot_size"), "open_date": f.get("open_date"),
+            "banker_raw": ", ".join(f.get("lead_managers") or []) or None,
+            "registrar_raw": f.get("registrar"), "market_maker_raw": f.get("market_maker"),
+            "issue_type": record["detected"].get("issue_type"), "rhp_url": None}
+    return {"ipo": meta, "docs": [{"doc_type": "rhp", "pages": record["pages"],
+                                   "text_pages": record["text_pages"], "status": record["status"],
+                                   "url": ""}],
+            "in_sample": False, "recorded": False, "outcome": None, "uploaded": True,
+            "upload": _upload_view(record),
+            "runs": [r for r in _history() if r["ipo_id"] == record["upload_id"]]}
+
+
+@router.post("/uploads", status_code=201)
+async def create_upload(request: Request) -> dict:
+    """The RHP PDF as the request body (Content-Type: application/pdf)."""
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "send the RHP PDF as the request body")
+    name = unquote(request.headers.get("x-filename", "rhp.pdf"))
+    try:
+        record = await asyncio.to_thread(uploads.create, settings(), body, name)
+    except uploads.UploadError as e:
+        raise HTTPException(422, str(e)) from e
+    return _upload_view(record)
+
+
+@router.get("/uploads")
+def list_uploads() -> dict:
+    return {"items": [_upload_view(r) for r in uploads.list_all(settings())]}
+
+
+@router.get("/uploads/{upload_id}")
+def get_upload(upload_id: str) -> dict:
+    return _upload_view(_upload(upload_id))
+
+
+@router.patch("/uploads/{upload_id}")
+def edit_upload(upload_id: str, changes: dict) -> dict:
+    _upload(upload_id)
+    try:
+        return _upload_view(uploads.update(settings(), upload_id, changes))
+    except uploads.UploadError as e:
+        raise HTTPException(422, str(e)) from e
+
+
 # -- runs --------------------------------------------------------------------
 
 class StartRun(BaseModel):
@@ -155,6 +228,8 @@ class StartRun(BaseModel):
 
 @router.post("/runs", status_code=202)
 def start_run(req: StartRun) -> dict:
+    if uploads.is_upload(req.ipo_id) and (gaps := uploads.missing(_upload(req.ipo_id))):
+        raise HTTPException(422, f"confirm these details first: {', '.join(gaps)}")
     run_id = f"run-{uuid.uuid4().hex[:8]}"
     with _lock:
         busy = [r for r in _runs.values() if r["status"] == "running" and not r["sample_mode"]]

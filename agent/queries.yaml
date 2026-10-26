@@ -189,3 +189,25 @@ auditor_track_record:
     WHERE ia.auditor_id = :auditor_id
       AND l.outcome_known_on < :as_of
     ORDER BY l.ipo_id
+
+banker_names:
+  time_free: true      # reference data: the archive's lead managers and their spellings
+  params: {}
+  columns: {banker_id: int, canonical_name: str, alias: str}
+  max_rows: 5000
+  sql: >
+    SELECT b.banker_id, b.canonical_name, a.alias
+    FROM RF_ARCHIVE.bankers b
+    LEFT JOIN RF_ARCHIVE.banker_alias a ON a.banker_id = b.banker_id
+    ORDER BY b.banker_id
+
+auditor_names:
+  time_free: true      # reference data: the archive's audit firms and their spellings
+  params: {}
+  columns: {auditor_id: int, canonical_name: str, alias: str}
+  max_rows: 5000
+  sql: >
+    SELECT a.auditor_id, a.canonical_name, x.alias
+    FROM RF_ARCHIVE.auditors a
+    LEFT JOIN RF_ARCHIVE.auditor_alias x ON x.auditor_id = a.auditor_id
+    ORDER BY a.auditor_id

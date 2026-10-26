@@ -203,11 +203,14 @@ export function notCheckedText(item: string): { title: string; reason: string } 
   let reason = at > 0 ? item.slice(at + 2) : "";
   const code = head.match(/^F\d{1,2}\b/)?.[0];
   const stmt = head.match(/^restated (PL|BS|CF) statement/i)?.[1]?.toUpperCase();
-  const title = code && FLAGS[code] ? FLAGS[code].title
+  const skeptic = head.match(/^Skeptic on (F\d{1,2})$/)?.[1];
+  const title = skeptic && FLAGS[skeptic] ? `Counter-check of "${FLAGS[skeptic].title}"`
+    : code && FLAGS[code] ? FLAGS[code].title
     : stmt ? { PL: "Profit & loss statement", BS: "Balance sheet", CF: "Cash flow statement" }[stmt]!
     : head.charAt(0).toUpperCase() + head.slice(1);
   if (/needed numbers are missing or unverified/.test(reason)) reason = "The prospectus figures this needs could not be confirmed.";
   else if (/could not be read or did not pass/.test(reason)) reason = "Could not be read reliably from the prospectus, so it was not used.";
+  else if (/No recorded reply|ReplayMiss|Model unavailable/.test(reason)) reason = "Skipped in an offline check: this needs the AI reading step. Run a fresh check when live data is back.";
   else if (/LIGHT depth/.test(reason)) reason = "This was a quick screen, so that part of the prospectus was not read.";
   else if (reason) reason = sentence(reason);
   return { title, reason };

@@ -43,12 +43,16 @@ export function Report({ result, cf, explain, trace }: {
           <Link to={`/ipo/${o.ipo.ipo_id}`} className="small row"><ChevronLeft size={14} /> {company}</Link>
           <div className="between" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
             <div className="stack-sm">
-              <div className="small faint">{o.ipo.exchange} · {rupees(o.ipo.issue_price)} a share · lead manager {titleCase(o.ipo.banker_raw)}</div>
+              <div className="small faint">{o.ipo.exchange} · {rupees(o.ipo.issue_price)} a share{o.ipo.banker_raw ? ` · lead manager ${titleCase(o.ipo.banker_raw)}` : ""}{o.ipo.ipo_id.startsWith("UP-") ? " · from an uploaded RHP" : ""}</div>
               <h1>{company}</h1>
-              <div className="small muted">Rated as of <b>{date(o.as_of)}</b>, the day the bid opened, using only what was known then.</div>
+              <div className="small muted">
+                {o.ipo.open_date && o.as_of < o.ipo.open_date.slice(0, 10)
+                  ? <>Rated on <b>{date(o.as_of)}</b>, before the bid opens on {date(o.ipo.open_date)}, from the uploaded prospectus.</>
+                  : <>Rated as of <b>{date(o.as_of)}</b>, the day the bid opened, using only what was known then.</>}
+              </div>
             </div>
             <div className="row-wrap">
-              <a className="btn btn-sm" href={`/api/runs/${result.run_id}/report.md`} download={`${o.ipo.symbol}-redflag-report.md`}><Download size={14} /> Download report</a>
+              <a className="btn btn-sm" href={`/api/runs/${result.run_id}/report.md`} download={`${o.ipo.symbol || titleCase(o.ipo.company).replace(/\W+/g, "-")}-redflag-report.md`}><Download size={14} /> Download report</a>
               <RerunButton ipoId={o.ipo.ipo_id} sample={sample} />
             </div>
           </div>
@@ -115,7 +119,7 @@ export function Report({ result, cf, explain, trace }: {
               <div className="stack-sm small">
                 <Row k="Judged as of" v={date(o.as_of)} />
                 <Row k="How deeply we read" v={DEPTH_TEXT[o.depth] ?? o.depth} />
-                <Row k="Data" v={sample ? "Saved data (replay)" : "Live data"} />
+                <Row k="Data" v={sample ? "Saved data (replay)" : o.data_source.includes("offline") ? "Offline check (local archive)" : "Live data"} />
                 <Row k="Checked" v={result.execution_time_seconds ? `in ${seconds(result.execution_time_seconds)}` : "–"} />
               </div>
             </Card>
@@ -271,11 +275,12 @@ const RULING: Record<string, { label: string; text: string }> = {
   upheld: { label: "The concern stands", text: "We looked for an ordinary explanation in the prospectus and did not find one." },
   downgraded: { label: "Softened", text: "The prospectus partly explains this, so we lowered its weight." },
   dismissed: { label: "Explained", text: "The prospectus gives an ordinary reason, so this does not count against the IPO." },
+  corroboration: { label: "Held at moderate", text: "Nothing else in the check points the same way, so we do not rate it serious on its own." },
 };
 
 function ConcernCard({ reason, note, explained }: { reason: Reason; note?: SkepticNote; explained?: boolean }) {
   const meta = FLAGS[reason.flag];
-  const ruling = note && (RULING[note.ruling] ?? { label: sentence(note.ruling), text: "" });
+  const ruling = note && (RULING[note.ruling] ?? { label: sentence(note.ruling).replace(/\.$/, ""), text: "" });
   return (
     <article className={cx("concern", explained && "explained")}>
       <div className="top">

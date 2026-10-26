@@ -174,7 +174,7 @@ def test_unreachable_zetaris_is_a_recoverable_error(sample_cfg, monkeypatch):
 
         def query(self, sql, limit):
             raise ZetarisError("Zetaris query failed: [Errno 64] Host is down")
-    monkeypatch.setattr(main, "data_client", lambda cfg, sample: (Down(), "zetaris"))
+    monkeypatch.setattr(main, "data_client", lambda cfg, sample, ipo_id="": (Down(), "zetaris"))
     with pytest.raises(RunError) as err:
         investigate(sample_cfg, DEMO, sample_mode=False)
     assert err.value.type == "DataSourceUnavailable" and err.value.recoverable

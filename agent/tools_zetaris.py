@@ -198,6 +198,16 @@ class DataPort:
         self.catalogue = catalogue or load_catalogue()
         self.on_query = on_query        # trace hook: called with each QueryResult
         self._results: dict[tuple, QueryResult] = {}
+        # IPO-specific, time-free answers that come from an uploaded RHP rather than
+        # the archive (agent/uploads.py); traced like any other lookup.
+        self.local: dict[str, list[dict]] = {}
+
+    def provide(self, rows: dict[str, list[dict]]) -> None:
+        for template in rows:
+            t = self.catalogue.get(template)
+            if t is None or not t.time_free:
+                raise LeakageError(f"{template!r}: only time-free templates can be provided")
+        self.local = rows
 
     def run(self, template: str, **params) -> QueryResult:
         """Run a named template. Identical calls on one port return the first
@@ -218,6 +228,12 @@ class DataPort:
             raise LeakageError(f"{template!r} is for offline training only")
         if set(params) != set(t.params):
             raise ValueError(f"{template!r} takes {sorted(t.params)}, got {sorted(params)}")
+        if template in self.local:
+            result = QueryResult(template, {k: str(v) for k, v in params.items()},
+                                 list(t.columns), self.local[template], "uploaded-rhp", 0.0)
+            if self.on_query:
+                self.on_query(result)
+            return result
         if "as_of" in t.params:
             if self.as_of is None or params["as_of"] != self.as_of:
                 raise LeakageError(f"{template!r}: as_of must be the run's as_of "

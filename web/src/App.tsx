@@ -6,6 +6,7 @@ import { HowPage } from "./pages/How";
 import { IpoPage } from "./pages/Ipo";
 import { RunPage } from "./pages/Run";
 import { RunsPage } from "./pages/Runs";
+import { UploadPage } from "./pages/Upload";
 import { Link, useLocation } from "./lib";
 
 export function App() {
@@ -14,6 +15,7 @@ export function App() {
   const seg = path.split("/").filter(Boolean).map(decodeURIComponent);
   let page;
   if (seg.length === 0) page = <Home />;
+  else if ((seg[0] === "upload" || seg[0] === "ipo") && seg[1]?.startsWith("UP-")) page = <UploadPage id={seg[1]} status={status} />;
   else if (seg[0] === "ipo" && seg[1]) page = <IpoPage id={seg[1]} status={status} />;
   else if (seg[0] === "run" && seg[1]) page = <RunPage id={seg[1]} />;
   else if (seg[0] === "runs" || seg[0] === "reports") page = <RunsPage />;
