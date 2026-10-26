@@ -1,47 +1,40 @@
 import { useState } from "react";
 import { api } from "../api";
-import { RunList } from "./Home";
+import { ReportList, latestPerIpo } from "./Home";
 import { ErrorBox } from "../components/ui";
-import { Link, useAsync, useInterval } from "../lib";
+import { IpoSearch } from "../components/Search";
+import { useAsync, useInterval } from "../lib";
 
 export function RunsPage() {
   const { data, error, loading, reload } = useAsync(() => api.runs(), []);
-  const [filter, setFilter] = useState<"all" | "live" | "sample">("all");
-  useInterval(reload, data?.active.some((r) => r.status === "running") ? 4000 : null);
-  const runs = (data?.runs ?? []).filter((r) => filter === "all" || (filter === "sample") === r.sample_mode);
+  const [all, setAll] = useState(false);
+  const running = data?.active.filter((r) => r.status === "running") ?? [];
+  useInterval(reload, running.length ? 4000 : null);
+  const runs = all ? data?.runs : latestPerIpo(data?.runs);
   return (
     <div className="container stack-lg">
-      <div className="between" style={{ flexWrap: "wrap" }}>
+      <div className="between" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
         <div className="stack-sm">
-          <div className="eyebrow">History</div>
-          <h1>Runs</h1>
+          <h1>Reports</h1>
+          <p className="muted">Every IPO checked so far{all ? ", including earlier checks of the same IPO" : ", latest report for each"}.</p>
         </div>
-        <div className="segmented" role="group" aria-label="Filter runs">
-          {(["all", "live", "sample"] as const).map((f) => (
-            <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>{f[0].toUpperCase() + f.slice(1)}</button>
-          ))}
+        <div className="segmented" role="group" aria-label="Which reports">
+          <button aria-pressed={!all} onClick={() => setAll(false)}>Latest per IPO</button>
+          <button aria-pressed={all} onClick={() => setAll(true)}>Every check</button>
         </div>
       </div>
       {error && <ErrorBox error={error} />}
-      {data && data.active.length > 0 && (
+      {running.length > 0 && (
         <section className="stack-sm">
-          <h2>In progress or failed</h2>
-          <div className="card table-wrap">
-            <table>
-              <tbody>
-                {data.active.map((r) => (
-                  <tr key={r.run_id}>
-                    <td><Link to={`/run/${r.run_id}`}><b>{r.ipo_id}</b></Link><div className="tiny faint mono">{r.run_id}</div></td>
-                    <td>{r.status === "running" ? <span className="pill"><span className="dot dot-live" /> Running</span> : <span className="badge sev-HIGH">Error</span>}</td>
-                    <td className="small muted">{r.error ? `${r.error.type}: ${r.error.message}` : r.sample_mode ? "Sample" : "Live"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <h2>Checking now</h2>
+          <ReportList runs={running} />
         </section>
       )}
-      <RunList runs={runs} loading={loading} />
+      <ReportList runs={runs} loading={loading} />
+      <section className="stack-sm">
+        <h2>Check another IPO</h2>
+        <IpoSearch />
+      </section>
     </div>
   );
 }

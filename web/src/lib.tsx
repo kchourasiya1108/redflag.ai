@@ -111,36 +111,131 @@ export function cx(...parts: (string | false | null | undefined)[]) {
 
 // -- domain vocabulary ---------------------------------------------------------
 
-export const FLAGS: Record<string, { title: string; what: string }> = {
-  F1: { title: "Paper profits", what: "Profit that does not turn into operating cash" },
-  F2: { title: "Profit spike before the IPO", what: "Last year's profit far above the two before" },
-  F3: { title: "Eligibility gaming", what: "EBITDA parked just above the ₹1 cr SME floor" },
-  F4: { title: "Cheap insider shares", what: "Shares allotted far below the IPO price in the 18 months before" },
-  F5: { title: "Customer concentration", what: "Revenue depends on a handful of customers" },
-  F6: { title: "Related-party trade", what: "Sales and purchases with related parties as a share of revenue" },
-  F7: { title: "Auditor risk", what: "Auditor's past SME IPOs and recent changes" },
-  F8: { title: "Overvalued vs peers", what: "Issue P/E against the listed peers the RHP names" },
-  F9: { title: "Vague use of money", what: "General corporate purposes against the cap" },
-  F10: { title: "Banker track record", what: "How the lead manager's earlier SME IPOs did" },
-  F11: { title: "Watchlist link", what: "A named party appears in a SEBI order dated before the bid" },
-  F12: { title: "Drift between drafts", what: "Changes between DRHP and RHP" },
-  F13: { title: "Repeat anchors / market maker", what: "The same anchor investors across issues" },
-  F14: { title: "Credit rating actions", what: "Downgrades before the issue" },
+export const FLAGS: Record<string, { title: string; what: string; why: string; ask?: string }> = {
+  F1: {
+    title: "Profits not backed by cash", what: "Profit that does not turn into operating cash",
+    why: "Profit that never arrives as cash can be an accounting choice rather than real earnings.",
+    ask: "Why is operating cash flow so far below reported profit, and when will receivables be collected?",
+  },
+  F2: {
+    title: "Profit jump just before the IPO", what: "Last year's profit far above the two before",
+    why: "A sudden rise in profit right before listing can be timed to justify a higher issue price.",
+    ask: "What drove the jump in profit in the last year, and is it likely to repeat?",
+  },
+  F3: {
+    title: "Profit just above the listing minimum", what: "Operating profit parked just above the ₹1 crore SME floor",
+    why: "SME listing needs ₹1 crore of operating profit; figures sitting just above it may have been managed to qualify.",
+    ask: "How much of operating profit comes from one-off items?",
+  },
+  F4: {
+    title: "Cheap shares for insiders", what: "Shares issued far below the IPO price, or a bonus issue, in the 18 months before",
+    why: "Insiders who got shares cheaply can profit by selling soon after listing, even if the price falls.",
+    ask: "At what price did insiders get shares in the last 18 months, and when does their lock-in end?",
+  },
+  F5: {
+    title: "Depends on a few customers", what: "Revenue depends on a handful of customers",
+    why: "Losing one large customer could cut revenue sharply.",
+    ask: "Who are the largest customers, and are there long-term contracts with them?",
+  },
+  F6: {
+    title: "Business with related parties", what: "Sales and purchases with promoters' own firms as a share of revenue",
+    why: "Trade with the promoters' own companies can move money out of the listed company.",
+    ask: "Are related-party transactions priced at market rates, and will they continue after listing?",
+  },
+  F7: {
+    title: "Auditor's record", what: "The auditor's past SME IPOs and recent changes",
+    why: "An auditor whose earlier SME clients did badly gives less comfort that the numbers are right.",
+    ask: "Why was this auditor chosen, and has the auditor changed recently?",
+  },
+  F8: {
+    title: "Priced above listed peers", what: "Issue P/E against the listed peers the prospectus names",
+    why: "Paying more than similar listed companies leaves less room for gains.",
+    ask: "Why does the issue price justify a higher valuation than listed peers?",
+  },
+  F9: {
+    title: "Vague use of the money raised", what: "How much goes to 'general corporate purposes'",
+    why: "Money raised for 'general corporate purposes' has no stated use.",
+    ask: "What exactly will the general corporate purposes money be spent on?",
+  },
+  F10: {
+    title: "Lead manager's track record", what: "How the lead manager's earlier SME IPOs did",
+    why: "Lead managers whose earlier SME IPOs often fell sharply are a warning sign for the next one.",
+    ask: "How have the lead manager's earlier SME IPOs performed after listing?",
+  },
+  F11: {
+    title: "Linked to a SEBI order", what: "Someone connected to the issue appears in a SEBI order dated before the bid",
+    why: "A connected party has been named by the regulator before. Worth knowing; it is not proof of wrongdoing by this company.",
+    ask: "What was the SEBI order about, and is the named party still involved?",
+  },
+  F12: { title: "Changes between draft and final prospectus", what: "What changed between the DRHP and the RHP", why: "Late changes can hide problems found during review." },
+  F13: { title: "Same anchor investors across issues", what: "The same anchor investors or market maker across issues", why: "A repeat group of anchors can signal a coordinated listing." },
+  F14: { title: "Credit rating downgrades", what: "Rating downgrades before the issue", why: "A recent downgrade means lenders see more risk." },
 };
 
+/** Investor wording for the overall rating. */
+export const RATING_TEXT: Record<string, { label: string; headline: string }> = {
+  HIGH: { label: "High risk", headline: "Several warning signs. Look very carefully before you bid." },
+  ELEVATED: { label: "Elevated risk", headline: "Some warning signs worth checking before you bid." },
+  LOW: { label: "Low risk", headline: "No major warning signs in what we could check." },
+  "INSUFFICIENT DATA": { label: "Not enough data", headline: "There was not enough information to rate this IPO." },
+};
+
+/** Severity of a single concern, in plain words. */
+export const CONCERN_TEXT: Record<string, string> = { HIGH: "Serious", ELEVATED: "Moderate", LOW: "Minor" };
+
+export const DEPTH_TEXT: Record<string, string> = {
+  LIGHT: "Quick screen: parties, SEBI orders and the lead manager's record",
+  STANDARD: "Standard read of the prospectus",
+  FORENSIC: "Deep read of the prospectus",
+};
+
+/** 0.456 -> "46 in 100"; tiny odds stay honest rather than rounding to zero. */
+export function odds(p: number | null | undefined): string {
+  if (p === null || p === undefined) return "–";
+  if (p < 0.01) return "under 1 in 100";
+  return `${Math.round(p * 100)} in 100`;
+}
+
+/** A plain title and reason for a "not checked" line such as "F1: needed numbers are missing". */
+export function notCheckedText(item: string): { title: string; reason: string } {
+  const at = item.indexOf(": ");
+  const head = at > 0 ? item.slice(0, at) : item;
+  let reason = at > 0 ? item.slice(at + 2) : "";
+  const code = head.match(/^F\d{1,2}\b/)?.[0];
+  const stmt = head.match(/^restated (PL|BS|CF) statement/i)?.[1]?.toUpperCase();
+  const title = code && FLAGS[code] ? FLAGS[code].title
+    : stmt ? { PL: "Profit & loss statement", BS: "Balance sheet", CF: "Cash flow statement" }[stmt]!
+    : head.charAt(0).toUpperCase() + head.slice(1);
+  if (/needed numbers are missing or unverified/.test(reason)) reason = "The prospectus figures this needs could not be confirmed.";
+  else if (/could not be read or did not pass/.test(reason)) reason = "Could not be read reliably from the prospectus, so it was not used.";
+  else if (/LIGHT depth/.test(reason)) reason = "This was a quick screen, so that part of the prospectus was not read.";
+  else if (reason) reason = sentence(reason);
+  return { title, reason };
+}
+
+/** Drop internal check codes such as "(F1, F10, F11)" from prose. */
+export const plainText = (t: string) => t.replace(/\s*\((?:F\d{1,2}(?:,\s*)?)+\)/g, "");
+
+/** Capitalise and end with a full stop. */
+export function sentence(t: string): string {
+  const s = plainText(t).trim();
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1) + (/[.!?)]$/.test(s) ? "" : ".");
+}
+
 export const FEATURE_NAMES: Record<string, string> = {
-  f_banker_crash: "Banker's past crash rate",
-  f_banker_low_history: "Banker has a thin history",
-  f_banker_median_ret: "Banker's median 6-month return",
-  f_watchlist_hit: "Named in a SEBI order",
-  f_watchlist_hop1: "Linked to a SEBI order via one party",
-  f_cfo_pat: "Operating cash / profit",
-  f_cfo_neg_pat_pos: "Negative cash, positive profit",
-  f_recv_rev_gap: "Receivables outgrowing revenue",
-  f_profit_spike: "Profit spike",
-  f_ebitda_headroom_min: "EBITDA headroom over ₹1 cr",
-  f_other_income_share: "Other income share of PBT",
-  f_rev_growth: "Revenue growth",
+  f_banker_crash: "How often the lead manager's past IPOs fell sharply",
+  f_banker_low_history: "Lead manager has few past IPOs",
+  f_banker_median_ret: "Typical return of the lead manager's past IPOs",
+  f_watchlist_hit: "A party is named in a SEBI order",
+  f_watchlist_hop1: "A party is linked to someone in a SEBI order",
+  f_cfo_pat: "Cash earned compared with profit",
+  f_cfo_neg_pat_pos: "Profit on paper, but cash going out",
+  f_recv_rev_gap: "Unpaid bills growing faster than sales",
+  f_profit_spike: "Jump in profit before the IPO",
+  f_ebitda_headroom_min: "Margin above the ₹1 crore listing minimum",
+  f_other_income_share: "Share of profit from non-core income",
+  f_rev_growth: "Sales growth",
 };
 
 export const FIELD_NAMES: Record<string, string> = {

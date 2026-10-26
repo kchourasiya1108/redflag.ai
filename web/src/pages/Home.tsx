@@ -1,52 +1,96 @@
-import { ArrowRight, Clock, Database, FileSearch, Scale, ShieldCheck } from "lucide-react";
+import { ArrowRight, Banknote, Building2, Gavel, Landmark, PieChart, ReceiptIndianRupee, ShieldCheck } from "lucide-react";
 import { api } from "../api";
 import { IpoSearch } from "../components/Search";
-import { Card, SeverityBadge, Skeleton } from "../components/ui";
-import type { RunSummary } from "../types";
-import { Link, ago, date, navigate, pct, rupees, seconds, useAsync } from "../lib";
+import { SeverityBadge, Skeleton } from "../components/ui";
+import type { Metrics, RunSummary } from "../types";
+import { Link, RATING_TEXT, ago, date, odds, pct, rupees, useAsync } from "../lib";
+
+const CHECKS = [
+  { icon: <Gavel size={18} />, t: "SEBI orders", d: "Promoters, directors, the lead manager, auditor and market maker, screened against SEBI orders issued before the bid." },
+  { icon: <Landmark size={18} />, t: "The lead manager's record", d: "How the banker's earlier SME IPOs did six months after listing." },
+  { icon: <ReceiptIndianRupee size={18} />, t: "Profits vs cash", d: "Whether reported profit turns into real cash, and whether it jumped just before the IPO." },
+  { icon: <Banknote size={18} />, t: "Cheap insider shares", d: "Shares given to insiders below your price in the 18 months before the issue." },
+  { icon: <Building2 size={18} />, t: "Who the business depends on", d: "Customer concentration and trade with the promoters' own companies." },
+  { icon: <PieChart size={18} />, t: "Price and use of money", d: "The issue's valuation against listed peers, and how much of the money has no stated use." },
+];
+
+/** Of the IPOs rated HIGH, how many went badly; and how many went badly overall. */
+export function hitRates(m: Metrics) {
+  const caught = m.recall_at_high * m.adverse;
+  const flagged = caught + m.false_alarm_rate * (m.n - m.adverse);
+  return { highHit: flagged ? caught / flagged : 0, base: m.adverse / m.n, flagged: Math.round(flagged) };
+}
+
+/** Latest finished report per IPO, newest first. */
+export function latestPerIpo(runs: RunSummary[] | undefined): RunSummary[] {
+  const seen = new Set<string>();
+  return (runs ?? []).filter((r) => r.rating && !seen.has(r.ipo_id) && seen.add(r.ipo_id));
+}
 
 export function Home() {
   const demos = useAsync(() => api.ipos("", 10, true), []);
   const runs = useAsync(() => api.runs(), []);
-  const latest = (id: string): RunSummary | undefined => runs.data?.runs.find((r) => r.ipo_id === id);
+  const bt = useAsync(() => api.backtest(), []);
+  const latest = (id: string): RunSummary | undefined => runs.data?.runs.find((r) => r.ipo_id === id && r.rating);
+  const m = bt.data?.results?.model;
+  const rates = m && hitRates(m);
+  const demoIds = new Set(demos.data?.items.map((d) => d.ipo_id));
+  const recent = latestPerIpo(runs.data?.runs).filter((r) => !demoIds.has(r.ipo_id)).slice(0, 6);
 
   return (
-    <div className="container stack-lg">
+    <div className="container stack-xl">
       <section className="hero">
-        <div className="eyebrow">Indian SME IPOs · NSE Emerge & BSE SME</div>
-        <h1>See the red flags in an SME IPO before the bid opens.</h1>
+        <div className="eyebrow">For investors in NSE Emerge and BSE SME IPOs</div>
+        <h1>Check an SME IPO for red flags before you bid.</h1>
         <p className="lede">
-          RedFlag reads the prospectus, checks every party against SEBI orders and the lead manager's track record,
-          and gives a backtested risk rating where every claim links to the page or query it came from.
+          We read the prospectus, screen everyone involved against SEBI orders, and look at how the lead manager's
+          past IPOs did. You get a clear risk rating, the concerns behind it, and the exact page each one comes from.
         </p>
         <IpoSearch autoFocus />
-        <div className="row-wrap small faint">
-          <span>A rating, not advice: RedFlag never says apply, avoid, buy or sell.</span>
-        </div>
+        <div className="small faint">Try a company name, a symbol, or a lead manager's name.</div>
       </section>
+
+      {rates && m && (
+        <section className="trust">
+          <div>
+            <div className="big">{bt.data!.results!.split.test}</div>
+            <div className="small muted">past SME IPOs we tested the ratings on, none of which the model had seen</div>
+          </div>
+          <div>
+            <div className="big">{pct(rates.highHit, 0)}</div>
+            <div className="small muted">of IPOs rated <b>High risk</b> went badly in their first six months, against {pct(rates.base, 0)} of all IPOs</div>
+          </div>
+          <div>
+            <div className="big">Every claim</div>
+            <div className="small muted">links to the prospectus page, SEBI order or record it came from</div>
+          </div>
+          <Link to="/track-record" className="small row">How we measure this <ArrowRight size={14} /></Link>
+        </section>
+      )}
 
       <section>
         <div className="section-title">
-          <h2>Recorded demos</h2>
-          <span className="hint">Recorded live against Zetaris and Nemotron; replayable offline in sample mode</span>
+          <h2>Example reports</h2>
+          <span className="hint">Three past IPOs, rated as of the day their bids opened</span>
         </div>
         <div className="grid-3">
-          {demos.loading && [0, 1, 2].map((i) => <div key={i} className="card card-pad"><Skeleton h={90} /></div>)}
+          {demos.loading && [0, 1, 2].map((i) => <div key={i} className="card card-pad"><Skeleton h={120} /></div>)}
           {demos.data?.items.map((d) => {
             const run = latest(d.ipo_id);
             return (
-              <Link key={d.ipo_id} to={`/ipo/${d.ipo_id}`} className="card demo-card">
+              <Link key={d.ipo_id} to={run ? `/run/${run.run_id}` : `/ipo/${d.ipo_id}`} className="card demo-card">
                 <div className="between">
-                  <span className="pill mono">{d.symbol}</span>
-                  {run ? <SeverityBadge level={run.rating} /> : <span className="pill">Not run yet</span>}
+                  {run ? <SeverityBadge level={run.rating} size="lg" /> : <span className="pill">Not rated yet</span>}
+                  <span className="small faint">{d.exchange}</span>
                 </div>
                 <div>
-                  <div className="company">{d.company}</div>
-                  <div className="small faint">{d.exchange} · bid {date(d.open_date)} · {rupees(d.issue_price)}</div>
+                  <div className="company">{titleCase(d.company)}</div>
+                  <div className="small faint">Bid opened {date(d.open_date)} · {rupees(d.issue_price)} a share</div>
                 </div>
+                {run && <div className="small muted">{RATING_TEXT[run.rating!]?.headline}</div>}
                 <div className="between small">
-                  <span className="muted">{run ? `p = ${pct(run.p_adverse)} · ${run.depth}` : d.banker_raw}</span>
-                  <span className="row" style={{ gap: 4 }}>Open <ArrowRight size={14} /></span>
+                  <span className="muted">{run ? <>Chance of a bad outcome: <b>{odds(run.p_adverse)}</b></> : "Open to run a check"}</span>
+                  <span className="row nowrap" style={{ gap: 4 }}>{run ? "Read report" : "Open"} <ArrowRight size={14} /></span>
                 </div>
               </Link>
             );
@@ -54,60 +98,69 @@ export function Home() {
         </div>
       </section>
 
-      <Card pad={false}>
-        <div className="how">
-          {[
-            { icon: <Database size={18} />, t: "Point-in-time data", d: "Every lookup runs through Zetaris with a Leakage Guard: only what was known before the bid date." },
-            { icon: <FileSearch size={18} />, t: "Reads the RHP", d: "Restated financials are parsed and verified by accounting identities; Nemotron reads the narrative sections." },
-            { icon: <Scale size={18} />, t: "Argues both sides", d: "A Skeptic agent looks for an ordinary explanation of each flag, citing RHP pages, before it counts." },
-            { icon: <ShieldCheck size={18} />, t: "Backtested score", d: "A calibrated model trained on past SME IPOs, tested on later ones it never saw." },
-          ].map((s, i) => (
-            <div className="step stack-sm" key={i}>
-              <div className="row" style={{ color: "var(--text-2)" }}>{s.icon}<span className="n">0{i + 1}</span></div>
-              <h3>{s.t}</h3>
-              <p className="small muted">{s.d}</p>
+      <section>
+        <div className="section-title">
+          <h2>What we check</h2>
+          <Link to="/how" className="small">How we rate →</Link>
+        </div>
+        <div className="checks-grid">
+          {CHECKS.map((c) => (
+            <div className="check-tile" key={c.t}>
+              <div className="ic">{c.icon}</div>
+              <h3>{c.t}</h3>
+              <p className="small muted">{c.d}</p>
             </div>
           ))}
         </div>
-      </Card>
-
-      <section>
-        <div className="section-title">
-          <h2>Recent runs</h2>
-          <Link to="/runs" className="small">All runs →</Link>
-        </div>
-        <RunList runs={runs.data?.runs.slice(0, 6)} loading={runs.loading} />
       </section>
+
+      {recent.length > 0 && (
+        <section>
+          <div className="section-title">
+            <h2>Recently checked</h2>
+            <Link to="/reports" className="small">All reports →</Link>
+          </div>
+          <ReportList runs={recent} />
+        </section>
+      )}
+
+      <div className="callout">
+        <ShieldCheck size={18} />
+        <div className="small">
+          RedFlag rates risk; it does not give advice. It never tells you to buy, sell or apply. Being linked to a SEBI order
+          is not proof that a company did anything wrong. Read the evidence and make your own decision.
+        </div>
+      </div>
     </div>
   );
 }
 
-export function RunList({ runs, loading }: { runs?: RunSummary[]; loading?: boolean }) {
+/** "VARYAA CREATIONS LIMITED" -> "Varyaa Creations Limited"; mixed case is left alone. */
+export function titleCase(name: string | null | undefined): string {
+  if (!name) return "";
+  if (name !== name.toUpperCase()) return name;
+  return name.toLowerCase().replace(/(^|[\s(&.-])([a-z])/g, (_, pre, c) => pre + c.toUpperCase());
+}
+
+export function ReportList({ runs, loading }: { runs?: RunSummary[]; loading?: boolean }) {
   if (loading && !runs) return <div className="card card-pad stack-sm">{[0, 1, 2].map((i) => <Skeleton key={i} h={20} />)}</div>;
-  if (!runs?.length) return <div className="card"><div className="empty small">No runs yet. Search for an IPO above to start one.</div></div>;
+  if (!runs?.length) return <div className="card"><div className="empty small">No reports yet. Search for an IPO to check it.</div></div>;
   return (
-    <div className="card table-wrap">
-      <table>
-        <thead>
-          <tr><th>Company</th><th>Rating</th><th className="num">p(adverse)</th><th>Depth</th><th>Data</th><th className="num">Time</th><th>When</th></tr>
-        </thead>
-        <tbody>
-          {runs.map((r) => (
-            <tr key={r.run_id} className="clickable" onClick={() => navigate(`/run/${r.run_id}`)}>
-              <td>
-                <Link to={`/run/${r.run_id}`}><b style={{ color: "var(--text)" }}>{r.company ?? r.ipo_id}</b></Link>
-                <div className="tiny faint mono">{r.run_id}</div>
-              </td>
-              <td><SeverityBadge level={r.rating ?? (r.status === "error" ? "error" : r.status)} /></td>
-              <td className="num mono">{pct(r.p_adverse)}</td>
-              <td className="small">{r.depth ?? "–"}</td>
-              <td><span className="pill">{r.sample_mode ? "Sample" : "Live · Zetaris"}</span></td>
-              <td className="num small"><span className="row" style={{ justifyContent: "flex-end", gap: 4 }}><Clock size={12} aria-hidden />{seconds(r.execution_time_seconds)}</span></td>
-              <td className="small faint nowrap">{ago(r.finished_at ?? r.started_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="card report-list">
+      {runs.map((r) => (
+        <Link key={r.run_id} to={`/run/${r.run_id}`} className="report-row">
+          <div style={{ minWidth: 0 }}>
+            <div className="name">{titleCase(r.company) || r.ipo_id}</div>
+            <div className="small faint">
+              {r.status === "error" ? "The check could not finish" : r.p_adverse !== undefined && r.p_adverse !== null ? `Chance of a bad outcome: ${odds(r.p_adverse)}` : ""}
+              {r.sample_mode ? " · saved data" : ""}
+            </div>
+          </div>
+          <SeverityBadge level={r.rating ?? (r.status === "error" ? "error" : r.status)} />
+          <span className="small faint nowrap when">{ago(r.finished_at ?? r.started_at)}</span>
+          <ArrowRight size={15} className="faint go" />
+        </Link>
+      ))}
     </div>
   );
 }

@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertOctagon, Brain, Check, ChevronLeft, Cpu, Database, Loader2, Minus, RotateCcw, Timer,
+  AlertOctagon, Brain, Check, ChevronLeft, Cpu, Database, Loader2, RotateCcw, Timer,
 } from "lucide-react";
 import { api } from "../api";
 import { Report } from "./Report";
 import { Card, ErrorBox, SeverityBadge, Skeleton, Stat } from "../components/ui";
 import type { CaseFile, Explain, RunState, TraceEvent } from "../types";
 import { FLAGS, Link, cx, navigate, useInterval } from "../lib";
-
-const TARGET_S = 180;
+import { titleCase } from "./Home";
 
 export const STAGES: { agent: string; name: string; what: string }[] = [
   { agent: "Intake", name: "Intake", what: "Finds the IPO and fixes as_of to the bid date" },
@@ -27,11 +26,6 @@ export const STAGES: { agent: string; name: string; what: string }[] = [
 ];
 
 const STEP_ACTIONS = new Set(["start", "plan", "delegate_task", "score", "evaluate", "final_synthesis", "escalation_check"]);
-
-function stageOfModelCall(purpose: string): string {
-  const p = purpose.split(":")[0];
-  return { extract: "Extractor", narrative: "NarrativeReader", skeptic: "Skeptic", summary: "Reporter", report: "Reporter" }[p] ?? "";
-}
 
 export function RunPage({ id }: { id: string }) {
   const [state, setState] = useState<RunState | null>(null);
@@ -94,7 +88,7 @@ export function RunPage({ id }: { id: string }) {
 }
 
 function BackLink() {
-  return <Link to="/runs" className="small row"><ChevronLeft size={14} /> Runs</Link>;
+  return <Link to="/reports" className="small row"><ChevronLeft size={14} /> Reports</Link>;
 }
 
 export function useRunStats(events: TraceEvent[]) {
@@ -114,183 +108,185 @@ export function useRunStats(events: TraceEvent[]) {
   }, [events]);
 }
 
+/** The agents, grouped into steps an investor can follow. */
+const PHASES: { title: string; doing: string; agents: string[] }[] = [
+  { title: "Looking up the issue", doing: "Finding the issue and everyone named in it", agents: ["Intake", "Names"] },
+  { title: "The lead manager's record", doing: "Checking how the lead manager's earlier SME IPOs did", agents: ["BankerTrackRecord"] },
+  { title: "SEBI orders", doing: "Screening every party against SEBI orders before the bid", agents: ["Watchlist"] },
+  { title: "The financial statements", doing: "Reading and cross-checking the restated accounts", agents: ["Planner", "Extractor", "Specialists"] },
+  { title: "The fine print", doing: "Reading share history, peers, use of money and related parties", agents: ["NarrativeReader"] },
+  { title: "Challenging each concern", doing: "Looking for an innocent explanation of every concern in the prospectus", agents: ["Skeptic", "CitationVerifier"] },
+  { title: "The rating", doing: "Scoring the risk and writing the report", agents: ["Scorer", "Evaluator", "Reporter"] },
+];
+
 function LiveRun({ state, events }: { state: RunState; events: TraceEvent[] }) {
   const [now, setNow] = useState(Date.now() / 1000);
   useInterval(() => setNow(Date.now() / 1000), 500);
   const startedAt = state.started_at ?? (events[0] ? new Date(events[0].timestamp).getTime() / 1000 : now);
   const elapsed = Math.max(0, now - startedAt);
-  const stats = useRunStats(events);
   const [company, setCompany] = useState<string | null>(null);
   useEffect(() => {
-    if (state.ipo_id) api.ipo(state.ipo_id).then((d) => setCompany(String(d.ipo.company)), () => {});
+    if (state.ipo_id) api.ipo(state.ipo_id).then((d) => setCompany(titleCase(String(d.ipo.company))), () => {});
   }, [state.ipo_id]);
   const lastAt = events.length ? new Date(events[events.length - 1].timestamp).getTime() / 1000 : startedAt;
   const quiet = now - lastAt;
 
-  // Stage progress from the agents' own trace events.
+  // Progress from the agents' own trace events; an agent past the last finished one was skipped.
   const done = new Map<string, TraceEvent>();
   for (const e of events) if (STEP_ACTIONS.has(e.action) && e.detail?.elapsed_ms !== undefined) done.set(e.agent_name, e);
   const lastDone = STAGES.reduce((m, s, i) => (done.has(s.agent) ? i : m), -1);
-  const latest = [...events].reverse().find((e) => e.agent_name !== "Orchestrator");
-  const activity: Record<string, string> = {};
-  for (const e of events) {
-    if (e.action === "model.call") activity[stageOfModelCall(String(e.detail?.purpose ?? ""))] = `Nemotron: ${e.detail?.purpose}`;
-    else if (e.action === "extract_attempt") activity.Extractor = e.output_summary;
-    else if (e.action === "markovian") activity.NarrativeReader = `Markovian ${e.output_summary}`;
-  }
+  const finished = (agent: string) => done.has(agent) || STAGES.findIndex((s) => s.agent === agent) < lastDone;
+  const phaseState = PHASES.map((ph) => (ph.agents.every(finished) ? "done" : ph.agents.some(finished) ? "active" : "pending"));
+  const activeIdx = phaseState.findIndex((s) => s !== "done");
   const flags = [...events.map((e) => e.output_summary).join(" ").matchAll(/\b(F\d{1,2})=(HIGH|ELEVATED|LOW)\b/g)]
     .reduce((m, [, f, s]) => m.set(f, s), new Map<string, string>());
-
-  const feed = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = feed.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 120) el.scrollTop = el.scrollHeight;
-  }, [events.length]);
+  const concerns = [...flags].filter(([, s]) => s !== "LOW");
+  const progress = (phaseState.filter((s) => s === "done").length + (activeIdx >= 0 ? 0.5 : 0)) / PHASES.length;
 
   return (
-    <div className="container stack-lg">
+    <div className="container stack-lg narrow">
       <div className="stack-sm">
         <BackLink />
-        <div className="between" style={{ flexWrap: "wrap" }}>
-          <div className="stack-sm">
-            <div className="row-wrap">
-              <span className="pill"><span className="dot dot-live" /> Running</span>
-              <span className="pill">{state.sample_mode ? "Sample mode" : "Live · Zetaris + Nightshift"}</span>
-              <span className="pill mono">{state.run_id}</span>
-            </div>
-            <h1>{company ?? state.ipo_id}</h1>
-          </div>
-        </div>
+        <div className="row-wrap"><span className="pill"><span className="dot dot-live" /> Checking</span></div>
+        <h1>{company ?? state.ipo_id}</h1>
+        <p className="muted">
+          {state.sample_mode ? "Replaying a saved check. This takes a few seconds." : "This usually takes about 3 minutes. You can leave this page open; the report appears here when it is ready."}
+        </p>
       </div>
 
-      <div className="grid-4">
-        <Stat icon={<Timer size={13} />} label="Elapsed" value={`${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, "0")}`}
-          sub={elapsed <= TARGET_S ? `target ${TARGET_S / 60} min` : "past the 3 min target; hard limit 10 min"} />
-        <Stat icon={<Database size={13} />} label="Zetaris queries" value={stats.queries.length} sub="named templates, leakage-guarded" />
-        <Stat icon={<Brain size={13} />} label="Nemotron calls" value={stats.calls.length} sub={`${(stats.tokens / 1000).toFixed(1)}k tokens${stats.retries ? ` · ${stats.retries} retries` : ""}`} />
-        <Stat icon={<Cpu size={13} />} label="Engines" value={stats.markovian + stats.hmem} sub={`Markovian ${stats.markovian} · H-MEM ${stats.hmem}`} />
-      </div>
+      <Card>
+        <div className="stack">
+          <div className="between small">
+            <span className="muted">{activeIdx >= 0 ? PHASES[activeIdx].doing : "Finishing up"}…</span>
+            <span className="mono faint">{Math.floor(elapsed / 60)}:{String(Math.floor(elapsed % 60)).padStart(2, "0")}</span>
+          </div>
+          <div className="progress" aria-label={`About ${Math.round(progress * 100)}% done`}><div style={{ width: `${Math.max(4, progress * 100)}%` }} /></div>
+          <ol className="phases">
+            {PHASES.map((ph, i) => {
+              const st = phaseState[i] === "done" ? "done" : i === activeIdx ? "active" : "pending";
+              return (
+                <li key={ph.title} className={cx("phase", st)}>
+                  <span className="icon">
+                    {st === "done" ? <Check size={13} strokeWidth={3} /> : st === "active" ? <Loader2 size={13} className="spin" /> : <span className="tiny">{i + 1}</span>}
+                  </span>
+                  <div>
+                    <div className="name">{ph.title}</div>
+                    {st === "active" && <div className="what">{ph.doing}</div>}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </Card>
+
       {quiet > 20 && (
         <div className="callout">
           <Loader2 size={18} className="spin" />
-          <div>
-            No new step for {Math.round(quiet)} s; {STAGES[lastDone + 1]?.name ?? "the run"} is still working.{" "}
-            {lastDone < 4
-              ? "Early steps wait on Zetaris: a query that gets no answer is retried for up to a minute before the run stops."
-              : "Nemotron calls on a large model can take a minute or more each."}
+          <div className="small">
+            Still working. {lastDone < 4
+              ? "Fetching records can take up to a minute when the data service is busy."
+              : "Reading long prospectus sections can take a minute or more."}
           </div>
         </div>
       )}
-      <div className="progress" aria-label="Progress"><div style={{ width: `${((lastDone + 1) / STAGES.length) * 100}%` }} /></div>
 
-      <div className="report-grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 380px" }}>
-        <Card title="Live trace" hint="Every agent step, query and model call as it happens" pad={false}>
-          <div className="feed" ref={feed} aria-live="polite">
-            {events.filter((e) => e.action !== "transition").map((e, i) => (
-              <div key={i} className={cx("feed-item", (e.status === "error" || e.status === "errored") && "err")}>
-                <span className="ts">{e.timestamp.slice(11, 19)}</span>
-                <span className="who">{e.agent_name}</span>
-                <span className="msg">{e.output_summary}</span>
-              </div>
-            ))}
-            {!events.length && <div className="empty small"><Loader2 className="spin" size={18} /> Waiting for the first event…</div>}
-          </div>
-        </Card>
-
-        <div className="stack">
-          <Card title="Agents" pad={false}>
-            <div className="pipeline" style={{ padding: 8 }}>
-              {STAGES.map((s, i) => {
-                const ev = done.get(s.agent);
-                const status = ev ? "done" : i < lastDone ? "skipped" : i === lastDone + 1 ? "active" : "pending";
-                return (
-                  <div key={s.agent} className={cx("stage", status)}>
-                    <span className="icon">
-                      {status === "done" ? <Check size={13} strokeWidth={3} /> : status === "active" ? <Loader2 size={13} className="spin" />
-                        : status === "skipped" ? <Minus size={13} /> : <span className="tiny">{i + 1}</span>}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="name">{s.name}</div>
-                      <div className="what">
-                        {ev ? ev.output_summary : status === "active" ? activity[s.agent] ?? s.what : status === "skipped" ? "Not needed at this depth" : s.what}
-                      </div>
-                    </div>
-                    <span className="t">{ev?.detail?.elapsed_ms !== undefined ? fmtMs(Number(ev.detail.elapsed_ms)) : ""}</span>
-                  </div>
-                );
-              })}
+      <Card title="Concerns found so far" hint="Before each one is challenged, so some may still be explained away">
+        {concerns.length === 0
+          ? <p className="small muted">None yet.</p>
+          : (
+            <div className="stack-sm">
+              {concerns.map(([f, s]) => (
+                <div className="between" key={f}>
+                  <span className="small"><b>{FLAGS[f]?.title ?? f}</b><div className="faint tiny">{FLAGS[f]?.what}</div></span>
+                  <SeverityBadge level={s} kind="concern" />
+                </div>
+              ))}
             </div>
-          </Card>
-          {flags.size > 0 && (
-            <Card title="Flags so far" hint="Before the Skeptic and the score">
-              <div className="stack-sm">
-                {[...flags].map(([f, s]) => (
-                  <div className="between" key={f}>
-                    <span className="small"><span className="mono faint">{f}</span> {FLAGS[f]?.title ?? f}</span>
-                    <SeverityBadge level={s} />
-                  </div>
-                ))}
-              </div>
-            </Card>
           )}
-          {latest && <p className="small faint">Latest: {latest.agent_name} · {latest.action}</p>}
+      </Card>
+
+      <details className="disclosure">
+        <summary>Technical log ({events.length} steps)</summary>
+        <TechLog events={events} live />
+      </details>
+    </div>
+  );
+}
+
+export function TechLog({ events, live }: { events: TraceEvent[]; live?: boolean }) {
+  const stats = useRunStats(events);
+  const feed = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = feed.current;
+    if (live && el && el.scrollHeight - el.scrollTop - el.clientHeight < 120) el.scrollTop = el.scrollHeight;
+  }, [events.length, live]);
+  return (
+    <div className="stack" style={{ marginTop: 12 }}>
+      <div className="grid-4">
+        <Stat icon={<Database size={13} />} label="Zetaris queries" value={stats.queries.length} />
+        <Stat icon={<Brain size={13} />} label="Nemotron calls" value={stats.calls.length} sub={`${(stats.tokens / 1000).toFixed(1)}k tokens${stats.retries ? ` · ${stats.retries} retries` : ""}`} />
+        <Stat icon={<Cpu size={13} />} label="Engines" value={stats.markovian + stats.hmem} sub={`Markovian ${stats.markovian} · H-MEM ${stats.hmem}`} />
+        <Stat icon={<Timer size={13} />} label="Events" value={events.length} />
+      </div>
+      <div className="card">
+        <div className="feed" ref={feed}>
+          {events.filter((e) => e.action !== "transition").map((e, i) => (
+            <div key={i} className={cx("feed-item", (e.status === "error" || e.status === "errored") && "err")}>
+              <span className="ts">{e.timestamp.slice(11, 19)}</span>
+              <span className="who">{e.agent_name}</span>
+              <span className="msg">{e.output_summary}</span>
+            </div>
+          ))}
+          {!events.length && <div className="empty small"><Loader2 className="spin" size={18} /> Waiting for the first step…</div>}
         </div>
       </div>
     </div>
   );
 }
 
-const fmtMs = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
-
 function FailedRun({ state, events }: { state: RunState; events: TraceEvent[] }) {
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const retry = async (sample: boolean) => {
     setBusy(true);
+    setErr(null);
     try {
       const r = await api.start(state.ipo_id!, sample);
       navigate(`/run/${r.run_id}`);
     } catch (e) {
-      alert((e as Error).message);
+      setErr((e as Error).message);
       setBusy(false);
     }
   };
-  const last = [...events].reverse().find((e) => e.status === "error");
+  const dataDown = state.error?.type === "DataSourceUnavailable";
   return (
-    <div className="container stack-lg">
+    <div className="container stack-lg narrow">
       <BackLink />
       <Card>
         <div className="stack">
-          <div className="row"><AlertOctagon size={22} color="var(--high)" /><h1 style={{ fontSize: 22 }}>The run stopped</h1></div>
-          <div className="callout err">
-            <AlertOctagon size={18} />
-            <div>
-              <b>{state.error?.type}</b>: {state.error?.message}
-              {last && <div className="small" style={{ marginTop: 4 }}>at {last.agent_name}</div>}
-            </div>
-          </div>
-          <p className="muted small">
-            {state.error?.type === "DataSourceUnavailable"
-              ? "Zetaris did not answer. Check that the Linux PC is on and the Zetaris services are running, then retry. Sample mode works offline."
-              : state.error?.recoverable ? "This is usually temporary. Retry, or use sample mode." : "Retrying will not help with this error."}
+          <div className="row"><AlertOctagon size={22} color="var(--high)" /><h1 style={{ fontSize: 22 }}>We couldn't finish this check</h1></div>
+          <p className="muted">
+            {dataDown
+              ? "Our data service did not respond, so we stopped rather than rate the IPO on incomplete information."
+              : state.error?.recoverable ? "Something went wrong part-way through. This is usually temporary." : "Something went wrong that a retry will not fix."}
+            {!state.sample_mode && " You can try again, or replay the saved check if one exists."}
           </p>
+          {err && <ErrorBox error={err} />}
           <div className="row-wrap">
-            {state.error?.recoverable && <button className="btn btn-primary" onClick={() => retry(!!state.sample_mode)} disabled={busy}><RotateCcw size={15} /> Retry</button>}
-            {!state.sample_mode && <button className="btn" onClick={() => retry(true)} disabled={busy}>Run in sample mode</button>}
+            {state.error?.recoverable && <button className="btn btn-primary" onClick={() => retry(!!state.sample_mode)} disabled={busy}><RotateCcw size={15} /> Try again</button>}
+            {!state.sample_mode && <button className="btn" onClick={() => retry(true)} disabled={busy}>Use saved data instead</button>}
             <Link to={`/ipo/${state.ipo_id}`} className="btn btn-ghost">Back to the IPO</Link>
           </div>
         </div>
       </Card>
-      {events.length > 0 && (
-        <Card title="Trace up to the failure" pad={false}>
-          <div className="feed">
-            {events.filter((e) => e.action !== "transition").map((e, i) => (
-              <div key={i} className={cx("feed-item", e.status === "error" && "err")}>
-                <span className="ts">{e.timestamp.slice(11, 19)}</span><span className="who">{e.agent_name}</span><span className="msg">{e.output_summary}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      <details className="disclosure">
+        <summary>Technical details</summary>
+        <div className="stack" style={{ marginTop: 12 }}>
+          <div className="callout err small"><div><b>{state.error?.type}</b>: {state.error?.message}</div></div>
+          {events.length > 0 && <TechLog events={events} />}
+        </div>
+      </details>
     </div>
   );
 }

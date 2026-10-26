@@ -1,6 +1,6 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import type { CaseFile, Explain, TraceEvent } from "../types";
-import { FEATURE_NAMES, num, pct } from "../lib";
+import { FEATURE_NAMES, num, odds, pct } from "../lib";
 
 // -- hover tooltip ------------------------------------------------------------
 
@@ -49,47 +49,103 @@ export function ProbabilityScale({ p, bands }: { p: number | null; bands: { low_
 
 // -- why this probability: each feature's push on the log-odds ----------------
 
-export function Contributions({ explain }: { explain: Explain }) {
+export function Contributions({ explain, baseRate }: { explain: Explain; baseRate: number }) {
   const { bind, node } = useTooltip();
   const rows = [...explain.features].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
   const extent = Math.max(0.25, ...rows.map((r) => Math.abs(r.contribution)));
+  const known = rows.filter((r) => !r.missing && Math.abs(r.contribution) > 0.0005);
+  const top = known[0];
   return (
     <div className="stack">
+      <p className="small muted">
+        We start from a typical SME IPO ({odds(baseRate)} went badly) and each factor below pushes this IPO's chance up or down,
+        ending at <b>{odds(explain.p_adverse)}</b>.
+        {top && <> The biggest single factor: <b>{FEATURE_NAMES[top.feature] ?? top.feature}</b>, which {top.contribution > 0 ? "raised" : "lowered"} the risk.</>}
+      </p>
       <div className="legend">
-        <span><i className="sw" style={{ background: "var(--raise)" }} />Raises the risk</span>
-        <span><i className="sw" style={{ background: "var(--lower)" }} />Lowers the risk</span>
-        <span className="faint">Bar length: change in log-odds · grey label: not known for this IPO (filled with the training median)</span>
+        <span><i className="sw" style={{ background: "var(--raise)" }} />Raised the risk</span>
+        <span><i className="sw" style={{ background: "var(--lower)" }} />Lowered the risk</span>
+        <span className="faint">Grey name: not known for this IPO, so a typical value was used</span>
       </div>
-      <div className="bars" role="table" aria-label="Feature contributions">
+      <div className="bars" role="table" aria-label="What moved the rating">
         {rows.map((r) => {
           const w = (Math.abs(r.contribution) / extent) * 50;
           const up = r.contribution >= 0;
+          const moved = Math.abs(r.contribution) > 0.0005;
           return (
             <div className="bar-row" key={r.feature} role="row"
               {...bind(<>
                 <b>{FEATURE_NAMES[r.feature] ?? r.feature}</b><br />
-                value: {r.missing ? "not known" : num(r.value, 3)}<br />
-                log-odds: {r.contribution >= 0 ? "+" : ""}{r.contribution.toFixed(3)}
+                {r.missing ? "Not known for this IPO" : `Value for this IPO: ${num(r.value, 2)}`}<br />
+                {moved ? (up ? "Raised the risk" : "Lowered the risk") : "Little effect"}
               </>)}>
               <span className="lab" role="cell" style={r.missing ? { color: "var(--text-3)" } : undefined}>
                 {FEATURE_NAMES[r.feature] ?? r.feature}
               </span>
               <div className="bar-track" role="cell">
                 <div className="axis" />
-                {Math.abs(r.contribution) > 0.0005 && (
+                {moved && (
                   <div className={`fill ${up ? "up" : "down"}`}
                     style={up ? { left: "50%", width: `${w}%` } : { right: "50%", width: `${w}%` }} />
                 )}
               </div>
-              <span className="val" role="cell">{r.contribution >= 0 ? "+" : ""}{r.contribution.toFixed(2)}</span>
+              <span className="val small" role="cell" style={{ fontFamily: "var(--font)", color: "var(--text-2)" }}>{moved ? (up ? "raised" : "lowered") : "–"}</span>
             </div>
           );
         })}
       </div>
-      <p className="small faint">
-        z = {explain.intercept.toFixed(2)} (base) {rows.reduce((s, r) => s + r.contribution, 0) >= 0 ? "+" : "−"}{" "}
-        {Math.abs(rows.reduce((s, r) => s + r.contribution, 0)).toFixed(2)} (features) → p = {pct(explain.p_adverse)} · model {explain.version}
-      </p>
+      {node}
+    </div>
+  );
+}
+
+// -- the rating as odds out of 100 --------------------------------------------
+
+/** 100 dots, one per IPO "like this one"; the filled ones went badly. Colour follows the rating and is never alone. */
+export function OddsGrid({ p, rating }: { p: number | null; rating: string }) {
+  const filled = p === null ? 0 : Math.round(p * 100);
+  const tone = rating === "HIGH" ? "var(--high)" : rating === "ELEVATED" ? "var(--elev)" : rating === "LOW" ? "var(--low)" : "var(--text-3)";
+  return (
+    <div className="odds-grid" role="img" aria-label={`${odds(p)} IPOs like this one went badly`}>
+      {[...Array(100)].map((_, i) => (
+        <i key={i} style={i < filled ? { background: tone, borderColor: tone } : undefined} />
+      ))}
+    </div>
+  );
+}
+
+// -- profit against the cash it brought in ------------------------------------
+
+export function CashProfitChart({ years }: { years: { label: string; pat: number | null; cfo: number | null }[] }) {
+  const { bind, node } = useTooltip();
+  const vals = years.flatMap((y) => [y.pat, y.cfo]).filter((v): v is number => v !== null);
+  if (!vals.length) return null;
+  const max = Math.max(0, ...vals), min = Math.min(0, ...vals);
+  const span = max - min || 1;
+  const H = 180;
+  const y0 = (max / span) * H; // the zero line, from the top
+  const bar = (v: number | null) => (v === null ? null : { top: v >= 0 ? y0 - (v / span) * H : y0, h: Math.max(2, (Math.abs(v) / span) * H) });
+  return (
+    <div className="stack-sm">
+      <div className="legend">
+        <span><i className="sw" style={{ background: "var(--series-1)" }} />Profit after tax</span>
+        <span><i className="sw" style={{ background: "var(--series-2)" }} />Cash from operations</span>
+      </div>
+      <div className="cp-chart" style={{ height: H + 26 }}>
+        <div className="zero" style={{ top: y0 }} />
+        {years.map((y) => {
+          const a = bar(y.pat), b = bar(y.cfo);
+          return (
+            <div className="grp" key={y.label} {...bind(<><b>{y.label}</b><br />Profit after tax: {y.pat === null ? "–" : `₹${num(y.pat)} cr`}<br />Cash from operations: {y.cfo === null ? "–" : `₹${num(y.cfo)} cr`}</>)}>
+              <div className="pair" style={{ height: H }}>
+                {a && <div className={`b s1${y.pat! < 0 ? " neg" : ""}`} style={{ top: a.top, height: a.h }} />}
+                {b && <div className={`b s2${y.cfo! < 0 ? " neg" : ""}`} style={{ top: b.top, height: b.h }} />}
+              </div>
+              <div className="x">{y.label}</div>
+            </div>
+          );
+        })}
+      </div>
       {node}
     </div>
   );

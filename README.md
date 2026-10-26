@@ -111,13 +111,18 @@ TypeScript adapters:
 
 ## Web app
 
-A React frontend (`web/`, Vite + TypeScript) served by the FastAPI app:
-search the 693 archived IPOs, start a live or sample run, watch each agent
-step stream in, then read the report card. Every cited RHP page, SEBI order
-and Zetaris query opens in a side panel; the report also shows the verified
-financials, the parties graph, how each feature moved the probability, and
-the full trace. The Backtest page shows the test-set metrics against the
-baselines.
+A React frontend (`web/`, Vite + TypeScript) served by the FastAPI app,
+written for investors rather than developers. Search the 693 archived IPOs,
+check one (a fresh live check, or an instant replay of saved data under
+"Check options"), follow plain-language progress, then read the report:
+the risk rating as odds out of 100, the concerns with why each matters and
+how it held up when challenged, questions to ask before bidding, what looked
+fine and what could not be checked. Every cited prospectus page, SEBI order
+and data lookup opens in a side panel. Financials open with an at-a-glance
+view (sales, profit, cash from operations); "Track record" explains the
+backtest in plain terms. Agents, Zetaris and Nemotron details, the trace and
+the full metrics sit behind "Technical details" and "For analysts"
+disclosures.
 
 ```bash
 cd web && npm install && npm run build && cd ..   # once, and after frontend changes

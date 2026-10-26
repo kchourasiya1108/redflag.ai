@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { ChevronLeft, Eye, EyeOff, ExternalLink, Loader2, Play } from "lucide-react";
+import { ArrowRight, ChevronLeft, Eye, EyeOff, ExternalLink, Loader2, Search } from "lucide-react";
 import { api } from "../api";
-import { RunList } from "./Home";
-import { Card, ErrorBox, Skeleton } from "../components/ui";
+import { ReportList, titleCase } from "./Home";
+import { Card, ErrorBox, SeverityBadge, Skeleton } from "../components/ui";
 import type { Status } from "../types";
-import { Link, date, navigate, pct, rupees, useAsync } from "../lib";
+import { Link, RATING_TEXT, ago, date, navigate, odds, pct, rupees, useAsync } from "../lib";
 
 export function IpoPage({ id, status }: { id: string; status: Status | null }) {
   const { data, error, loading } = useAsync(() => api.ipo(id), [id]);
@@ -18,8 +18,11 @@ export function IpoPage({ id, status }: { id: string; status: Status | null }) {
   if (error) return <div className="container"><ErrorBox error={error} /></div>;
   if (!data) return null;
   const ipo = data.ipo;
-  const chosen = mode ?? (liveReady ? "live" : data.in_sample ? "sample" : "live");
+  const chosen = mode ?? (liveReady || !data.in_sample ? "live" : "sample");
+  const canStart = chosen === "sample" || liveReady || !status;
   const rhp = data.docs.find((d) => d.doc_type === "rhp" && d.status === "ok");
+  const latest = data.runs.find((r) => r.rating);
+  const price = Number(ipo.issue_price), lot = Number(ipo.lot_size);
 
   const start = async () => {
     setStarting(true);
@@ -28,47 +31,55 @@ export function IpoPage({ id, status }: { id: string; status: Status | null }) {
       const r = await api.start(id, chosen === "sample");
       navigate(`/run/${r.run_id}`);
     } catch (e) {
-      setStartError((e as Error).message);
+      const msg = (e as Error).message;
+      setStartError(/busy|already/i.test(msg) ? "Another live check is running. Please wait a minute and try again." : msg);
       setStarting(false);
     }
   };
 
   const facts: [string, string][] = [
+    ["Bid opened", date(ipo.open_date as string)],
+    ["Listing date", date(ipo.listing_date as string)],
+    ["Price per share", rupees(ipo.issue_price)],
+    ["Minimum lot", lot ? `${lot.toLocaleString("en-IN")} shares` : "–"],
+    ["Minimum investment", price && lot ? rupees(price * lot) : "–"],
+    ["Issue size", ipo.issue_size_cr ? `₹${Number(ipo.issue_size_cr).toFixed(2)} crore` : "–"],
     ["Exchange", String(ipo.exchange ?? "–")],
-    ["Bid opens", date(ipo.open_date as string)],
-    ["Listing", date(ipo.listing_date as string)],
-    ["Issue price", rupees(ipo.issue_price)],
-    ["Issue size", ipo.issue_size_cr ? `₹${Number(ipo.issue_size_cr).toFixed(2)} cr` : "–"],
-    ["Issue type", String(ipo.issue_type ?? "–")],
-    ["Lot size", String(ipo.lot_size ?? "–")],
     ["Industry", String(ipo.industry ?? "–")],
+    ["Issue type", String(ipo.issue_type ?? "–")],
     ["Lead manager", String(ipo.banker_raw ?? "–")],
     ["Registrar", String(ipo.registrar_raw ?? "–")],
     ["Market maker", String(ipo.market_maker_raw ?? "–")],
-    ["RHP", rhp ? `${rhp.pages} pages` : "not in the archive"],
   ];
   const outcome = data.outcome;
 
   return (
     <div className="container stack-lg">
       <div className="stack-sm">
-        <Link to="/" className="small row" ><ChevronLeft size={14} /> Search</Link>
+        <Link to="/" className="small row"><ChevronLeft size={14} /> Search</Link>
         <div className="between" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
           <div className="stack-sm">
-            <div className="row-wrap">
-              <span className="pill mono">{ipo.symbol}</span>
-              <span className="pill mono">{ipo.ipo_id}</span>
-              {data.recorded && <span className="pill">Recorded demo</span>}
-            </div>
-            <h1>{ipo.company}</h1>
+            <div className="small faint">{ipo.exchange} · symbol <span className="mono">{ipo.symbol}</span></div>
+            <h1>{titleCase(String(ipo.company))}</h1>
           </div>
-          {ipo.rhp_url && <a className="btn btn-sm" href={String(ipo.rhp_url)} target="_blank" rel="noreferrer">RHP on the exchange <ExternalLink size={13} /></a>}
+          {ipo.rhp_url && <a className="btn btn-sm" href={String(ipo.rhp_url)} target="_blank" rel="noreferrer">Prospectus (RHP) <ExternalLink size={13} /></a>}
         </div>
       </div>
 
       <div className="report-grid">
         <div className="stack">
-          <Card title="The issue" hint="Cover-page facts from the archive">
+          {latest && (
+            <Link to={`/run/${latest.run_id}`} className="card latest-card">
+              <SeverityBadge level={latest.rating} size="lg" />
+              <div style={{ minWidth: 0 }}>
+                <div className="t">{RATING_TEXT[latest.rating!]?.headline}</div>
+                <div className="small muted">Chance of a bad outcome: {odds(latest.p_adverse)} · checked {ago(latest.finished_at)}</div>
+              </div>
+              <span className="row small nowrap">Read the report <ArrowRight size={14} /></span>
+            </Link>
+          )}
+
+          <Card title="About the issue">
             <div className="kv">
               {facts.map(([k, v]) => <div key={k}><div className="k">{k}</div><div className="v">{v}</div></div>)}
             </div>
@@ -78,59 +89,79 @@ export function IpoPage({ id, status }: { id: string; status: Status | null }) {
             <div className="between">
               <div>
                 <b>What happened after listing</b>
-                <div className="small muted">Hidden by default. The run never sees this: it is judged as of the bid date.</div>
+                <div className="small muted">Hidden so you can judge the report fairly. The rating only uses what was known on the bid date.</div>
               </div>
               <button className="btn btn-sm" onClick={() => setHindsight((h) => !h)} disabled={!outcome}>
-                {hindsight ? <EyeOff size={14} /> : <Eye size={14} />} {outcome ? (hindsight ? "Hide" : "Reveal") : "No outcome yet"}
+                {hindsight ? <EyeOff size={14} /> : <Eye size={14} />} {outcome ? (hindsight ? "Hide" : "Show") : "Not known yet"}
               </button>
             </div>
             {hindsight && outcome && (
               <div className="kv" style={{ marginTop: 8 }}>
-                <div><div className="k">6-month return</div><div className="v mono">{pct(outcome.ret_6m as number)}</div></div>
-                <div><div className="k">vs {String(outcome.index_name ?? "index")}</div><div className="v mono">{pct(outcome.index_ret_6m as number)}</div></div>
-                <div><div className="k">Outcome</div><div className="v">{outcome.adverse === 1 ? "Adverse" : outcome.adverse === 0 ? "Not adverse" : "Unknown"}</div></div>
-                <div><div className="k">Known on</div><div className="v">{date(outcome.outcome_known_on as string)}</div></div>
+                <div><div className="k">Share price after 6 months</div><div className="v mono">{signed(outcome.ret_6m as number)}</div></div>
+                <div><div className="k">{String(outcome.index_name ?? "Market index")} over the same time</div><div className="v mono">{signed(outcome.index_ret_6m as number)}</div></div>
+                <div><div className="k">Outcome</div><div className="v">{outcome.adverse === 1 ? "Went badly" : outcome.adverse === 0 ? "Did not go badly" : "Unknown"}</div></div>
               </div>
             )}
           </div>
 
-          <section className="stack-sm">
-            <h2>Earlier runs</h2>
-            <RunList runs={data.runs} />
-          </section>
+          {data.runs.length > 0 && (
+            <section className="stack-sm">
+              <h2>Earlier reports on this IPO</h2>
+              <ReportList runs={data.runs} />
+            </section>
+          )}
         </div>
 
-        <Card title="Investigate" hint={`As of ${date(ipo.open_date as string)}, the day the bid opened`}>
-          <div className="stack" role="radiogroup" aria-label="Run mode">
-            <button className="mode-option" role="radio" aria-checked={chosen === "live"} onClick={() => setMode("live")}>
-              <span className="radio" />
-              <span className="t">Live</span>
-              <span className="d">
-                Zetaris on the Linux PC and Nemotron through Meterless Nightshift. About 3 minutes.
-                {!liveReady && status && <><br /><span style={{ color: "var(--high-text)" }}>
-                  {!status.zetaris.ok ? "Zetaris is not answering." : "Nightshift is not answering."}</span></>}
-              </span>
-            </button>
-            <button className="mode-option" role="radio" aria-checked={chosen === "sample"} onClick={() => setMode("sample")} disabled={!data.in_sample}>
-              <span className="radio" />
-              <span className="t">Sample (offline)</span>
-              <span className="d">
-                {data.in_sample
-                  ? data.recorded
-                    ? "Bundled archive and recorded Nemotron replies. Reproduces the live run in about a second."
-                    : "Bundled archive; no recorded replies for this IPO, so model steps are skipped."
-                  : "This IPO is not in the bundled sample."}
-              </span>
-            </button>
+        <Card className="check-card" title={latest ? "Check it again" : "Check this IPO"} hint={`Judged as of ${date(ipo.open_date as string)}, the day the bid opened`}>
+          <div className="stack">
+            <ul className="ticks small">
+              <li>Screens everyone involved against SEBI orders</li>
+              <li>Looks up the lead manager's past IPOs</li>
+              <li>{rhp ? `Reads the ${rhp.pages}-page prospectus` : "No prospectus text on file: rates on the people involved and track records only"}</li>
+              <li>Challenges each concern before it counts</li>
+            </ul>
             {startError && <ErrorBox error={startError} />}
-            <button className="btn btn-primary btn-lg" onClick={start} disabled={starting}>
-              {starting ? <Loader2 size={17} className="spin" /> : <Play size={17} />}
-              {starting ? "Starting…" : "Run investigation"}
+            {!canStart && (
+              <div className="callout small">
+                Fresh checks are offline right now.{data.in_sample ? " You can still replay the saved check below." : " Please try again later."}
+              </div>
+            )}
+            <button className="btn btn-primary btn-lg" onClick={start} disabled={starting || !canStart}>
+              {starting ? <Loader2 size={17} className="spin" /> : <Search size={17} />}
+              {starting ? "Starting…" : latest ? "Run a new check" : "Check this IPO"}
             </button>
-            {!rhp && <p className="small muted">No RHP text in the archive: the run rates this IPO on its parties, the watchlist and the banker's record only.</p>}
+            <p className="small faint" style={{ textAlign: "center", marginTop: -6 }}>
+              {chosen === "sample" ? "Instant: replays saved data" : "Usually takes about 3 minutes"}
+            </p>
+            <details className="disclosure">
+              <summary>Check options</summary>
+              <div className="stack-sm" role="radiogroup" aria-label="Data source" style={{ marginTop: 10 }}>
+                <button className="mode-option" role="radio" aria-checked={chosen === "live"} onClick={() => setMode("live")}>
+                  <span className="radio" />
+                  <span className="t">Fresh check</span>
+                  <span className="d">
+                    Live data and AI reading, about 3 minutes.
+                    {status && !liveReady && <><br /><span style={{ color: "var(--high-text)" }}>Live data is offline right now.</span></>}
+                  </span>
+                </button>
+                <button className="mode-option" role="radio" aria-checked={chosen === "sample"} onClick={() => setMode("sample")} disabled={!data.in_sample}>
+                  <span className="radio" />
+                  <span className="t">Instant replay</span>
+                  <span className="d">
+                    {data.in_sample
+                      ? data.recorded
+                        ? "Replays a saved check from the offline archive in about a second."
+                        : "Offline archive; the AI reading steps are skipped."
+                      : "Not available for this IPO."}
+                  </span>
+                </button>
+              </div>
+            </details>
           </div>
         </Card>
       </div>
     </div>
   );
 }
+
+const signed = (x: number | null | undefined) => (x === null || x === undefined ? "–" : `${x > 0 ? "+" : ""}${pct(x)}`);
