@@ -113,3 +113,51 @@ def test_unknown_and_bad_upload_ids(client):  # noqa: F811
     assert client.get("/api/uploads/UP-00000000").status_code == 404
     assert client.get("/api/uploads/UP-../../etc").status_code == 404
     assert client.get("/api/ipos/UP-00000000").status_code == 404
+
+
+class FakeFetcher:
+    """Serves canned exchange responses by URL substring."""
+
+    def __init__(self, routes: dict):
+        self.routes = routes
+
+    def get(self, url, dest=None, *, referer=None):
+        for key, body in self.routes.items():
+            if key in url:
+                return body if isinstance(body, bytes) else body.encode()
+        raise AssertionError(f"unexpected fetch {url}")
+
+
+def test_upcoming_lists_only_open_sme_issues_and_loads_their_rhps(sample_cfg, rhp_pdf):  # noqa: F811
+    import json as _json
+    from pipeline import upcoming
+    nse = _json.dumps([
+        {"symbol": "BIGCO", "series": "EQ", "companyName": "Big Co Limited",
+         "issueStartDate": "29-Oct-2026", "issueEndDate": "31-Oct-2026", "issuePrice": "Rs.78 to Rs.82"},
+        {"symbol": "ACME", "series": "SME", "companyName": "Acme Precision Tools Limited",
+         "issueStartDate": "30-Oct-2026", "issueEndDate": "03-Nov-2026", "issuePrice": "Rs.95 to Rs.100",
+         "status": "Forthcoming"}])
+    detail = _json.dumps({"issueInfo": {"dataList": [
+        {"title": "Book Running Lead Managers", "value": "First Overseas Capital Limited"},
+        {"title": "Red Herring Prospectus", "value": "https://archives.nseindia.com/content/ipo/RHP_ACME.pdf"},
+        {"title": "Bid Lot", "value": "1200 Equity Shares"}]}})
+    bse_index = ("<table><tr><td>Old Co Limited</td><td><a href='/download/1/a/d.pdf'>D</a> 01/01/2025</td>"
+                 "<td><a href='/download/1/a/r.pdf'>R</a></td><td><a href='/download/1/a/p.pdf'>P</a></td>"
+                 "<td><a href='/download/1/a/b.pdf'>B</a></td></tr>"
+                 "<tr><td>New Bse Co Limited</td><td><a href='/download/9/a/d.pdf'>D</a> 01/09/2026</td>"
+                 "<td><a href='/download/9/a/r.pdf'>R</a></td><td></td><td></td></tr></table>")
+    fetcher = FakeFetcher({"all-upcoming-issues": nse, "ipo-detail": detail, "RHP_ACME": rhp_pdf,
+                           "SMEIPODRHP": bse_index, "/download/9/": make_pdf([COVER[:3] + FILLER, FILLER])})
+    summary = upcoming.refresh(sample_cfg, fetcher, log=lambda *_: None)
+    assert summary["errors"] == [] and len(summary["found"]) == 2
+    records = [uploads.load(sample_cfg, i) for i in summary["found"]]
+    nse_rec = next(r for r in records if r["source"]["exchange"] == "NSE Emerge")
+    assert nse_rec["fields"]["issue_price"] == 100.0           # top of NSE's price band
+    assert nse_rec["fields"]["open_date"] == "2026-10-30" and nse_rec["fields"]["lot_size"] == 1200
+    assert uploads.missing(nse_rec) == []
+    bse_rec = next(r for r in records if r["source"]["exchange"] == "BSE SME")
+    assert bse_rec["source"]["symbol"] == "9"                   # closed "Old Co" is skipped
+    # A second refresh finds the same PDFs and keeps the investor's edits.
+    uploads.update(sample_cfg, nse_rec["upload_id"], {"issue_price": 97})
+    upcoming.refresh(sample_cfg, fetcher, log=lambda *_: None)
+    assert uploads.load(sample_cfg, nse_rec["upload_id"])["fields"]["issue_price"] == 97.0

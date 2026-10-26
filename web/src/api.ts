@@ -46,6 +46,8 @@ export const api = {
     }),
   backtest: () => get<Backtest>("/api/backtest"),
   uploads: () => get<{ items: Upload[] }>("/api/uploads"),
+  upcoming: () => get<{ items: Upload[]; last: { refreshed_at?: number; errors?: string[] }; refreshing: boolean; error: string | null }>("/api/upcoming"),
+  refreshUpcoming: () => get<{ refreshing: boolean }>("/api/upcoming/refresh", { method: "POST" }),
   upload: (id: string) => get<Upload>(`/api/uploads/${encodeURIComponent(id)}`),
   editUpload: (id: string, changes: UploadFields) =>
     get<Upload>(`/api/uploads/${encodeURIComponent(id)}`, {

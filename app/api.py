@@ -219,6 +219,44 @@ def edit_upload(upload_id: str, changes: dict) -> dict:
         raise HTTPException(422, str(e)) from e
 
 
+# -- open and upcoming IPOs (pipeline/upcoming.py) -----------------------------
+
+_refresh = {"running": False, "error": None}
+
+
+@router.get("/upcoming")
+def upcoming() -> dict:
+    """Exchange-listed open and upcoming SME IPOs whose RHPs are loaded."""
+    from pipeline.upcoming import last_refresh
+    cfg = settings()
+    items = [_upload_view(r) for r in uploads.list_all(cfg) if r.get("source")]
+    today = time.strftime("%Y-%m-%d")
+    items = [i for i in items if (i["source"].get("close_date") or "9999") >= today]
+    items.sort(key=lambda i: i["fields"].get("open_date") or "9999")
+    return {"items": items, "last": last_refresh(cfg), "refreshing": _refresh["running"],
+            "error": _refresh["error"]}
+
+
+@router.post("/upcoming/refresh", status_code=202)
+def refresh_upcoming() -> dict:
+    with _lock:
+        if _refresh["running"]:
+            return {"refreshing": True}
+        _refresh.update(running=True, error=None)
+
+    def work():
+        from pipeline.common.http import Fetcher
+        from pipeline.upcoming import refresh
+        try:
+            refresh(settings(), Fetcher(), log=lambda *_: None)
+        except Exception as e:      # shown on the page
+            _refresh["error"] = f"{type(e).__name__}: {e}"[:300]
+        finally:
+            _refresh["running"] = False
+    threading.Thread(target=work, name="upcoming-refresh", daemon=True).start()
+    return {"refreshing": True}
+
+
 # -- runs --------------------------------------------------------------------
 
 class StartRun(BaseModel):

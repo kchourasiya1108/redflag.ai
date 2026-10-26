@@ -109,6 +109,30 @@ TypeScript adapters:
   its verdict is final (`run.py sebi-review model`). The model and its
   reason are stored on each row.
 
+## Checking an upcoming IPO
+
+Two ways in, both on the home page:
+
+- **Upload the RHP.** Drop the PDF; the cover is read without a model
+  (company, bid date, price, exchange, lead managers, registrar, market maker,
+  auditor) and the investor confirms or fills in the rest. Book-built RHPs
+  print the price as [●], so the top of the price band is entered by hand.
+- **Pick from the list.** "Open and upcoming SME IPOs" lists issues found on
+  NSE Emerge (the upcoming-issues API, SME series) and BSE SME (offer
+  documents with an RHP but no allotment yet), with their RHPs already loaded
+  and NSE's dates, price band and lead managers pre-filled.
+
+```bash
+.venv/bin/python run.py upcoming     # or the Refresh button; RHPs land in data/uploads/
+```
+
+Either way the IPO becomes an upload record (`agent/uploads.py`, id `UP-…`)
+and the usual check runs: the IPO's own facts come from the RHP, while the
+lead manager's and auditor's history, SEBI orders and base rates still come
+from Zetaris. An upcoming IPO is judged as of today; one whose bid has opened,
+as of its bid date. With Zetaris down, "Offline check" runs the same agents
+against the local archive without model calls.
+
 ## Web app
 
 A React frontend (`web/`, Vite + TypeScript) served by the FastAPI app,

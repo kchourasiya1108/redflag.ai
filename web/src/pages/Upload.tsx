@@ -1,9 +1,9 @@
 import { useRef, useState, type DragEvent } from "react";
-import { AlertTriangle, CheckCircle2, ChevronLeft, FileUp, Loader2, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft, FileUp, Loader2, Plus, RefreshCw, Search, X } from "lucide-react";
 import { api, uploadRhp } from "../api";
 import { Card, ErrorBox, Skeleton } from "../components/ui";
 import type { Status, Upload, UploadFields } from "../types";
-import { Link, cx, date, navigate, useAsync } from "../lib";
+import { Link, ago, cx, date, navigate, useAsync, useInterval } from "../lib";
 import { ReportList, titleCase } from "./Home";
 
 /** Drop or pick an RHP PDF; on success, go to the confirm-details step. */
@@ -145,7 +145,10 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
     <div className="container stack-lg narrow">
       <div className="stack-sm">
         <Link to="/" className="small row"><ChevronLeft size={14} /> Home</Link>
-        <div className="small faint">Uploaded {up.filename} · {up.pages} pages</div>
+        <div className="small faint">
+          {up.source ? <>RHP from {up.source.exchange} · {up.pages} pages{up.source.rhp_url && <> · <a href={up.source.rhp_url} target="_blank" rel="noreferrer">original file</a></>}</>
+            : <>Uploaded {up.filename} · {up.pages} pages</>}
+        </div>
         <h1>{titleCase(form.company) || "Your prospectus"}</h1>
         <p className="muted">Check the details we read from the cover. Book-built RHPs often leave the price blank ([●]); enter the top of the price band from the price band advertisement.</p>
       </div>
@@ -222,7 +225,7 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
           <ReportList runs={runs} />
         </section>
       )}
-      <p className="tiny faint">Your file is stored on this RedFlag server only, to show the pages behind each finding. Checked as of {form.open_date ? date(upcoming ? new Date().toISOString().slice(0, 10) : form.open_date) : "the bid date"}.</p>
+      <p className="tiny faint">{up.source ? "Downloaded from the exchange's offer documents." : "Your file is stored on this RedFlag server only, to show the pages behind each finding."} Checked as of {form.open_date ? date(upcoming ? new Date().toISOString().slice(0, 10) : form.open_date) : "the bid date"}.</p>
     </div>
   );
 }
@@ -242,7 +245,7 @@ function Field({ label, required, ok, hint, wide, children }: {
 /** Recently uploaded prospectuses, for the home page. */
 export function RecentUploads() {
   const { data } = useAsync(() => api.uploads(), []);
-  const items = data?.items.slice(0, 6) ?? [];
+  const items = data?.items.filter((u) => !u.source).slice(0, 6) ?? [];
   if (!items.length) return null;
   return (
     <div className="card report-list">
@@ -258,5 +261,63 @@ export function RecentUploads() {
         </Link>
       ))}
     </div>
+  );
+}
+
+/** Open and upcoming SME IPOs whose RHPs we have already loaded from the exchanges. */
+export function UpcomingIpos() {
+  const { data, reload } = useAsync(() => api.upcoming(), []);
+  const [asked, setAsked] = useState(false);
+  const refreshing = asked || !!data?.refreshing;
+  useInterval(() => {
+    reload();
+    if (asked && data && !data.refreshing) setAsked(false);
+  }, refreshing ? 3000 : null);
+  const refresh = async () => {
+    setAsked(true);
+    await api.refreshUpcoming().catch(() => setAsked(false));
+  };
+  const items = data?.items ?? [];
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <section>
+      <div className="section-title">
+        <h2>Open and upcoming SME IPOs</h2>
+        <span className="row small faint" style={{ gap: 10 }}>
+          {data?.last?.refreshed_at ? `Updated ${ago(data.last.refreshed_at)}` : "Not loaded yet"}
+          <button className="btn btn-sm" onClick={refresh} disabled={refreshing}>
+            <RefreshCw size={13} className={refreshing ? "spin" : undefined} /> {refreshing ? "Checking the exchanges…" : "Refresh"}
+          </button>
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <div className="card"><div className="empty small">
+          {refreshing ? "Looking for new SME IPOs on NSE Emerge and BSE SME and downloading their RHPs…"
+            : "No open or upcoming SME IPOs found yet. Press Refresh to check NSE Emerge and BSE SME, or upload an RHP above."}
+        </div></div>
+      ) : (
+        <div className="card report-list">
+          {items.map((u) => {
+            const open = u.fields.open_date;
+            const state = !open ? "Dates not announced" : open > today ? `Bid opens ${date(open)}` : u.source?.close_date && u.source.close_date >= today ? `Open now · closes ${date(u.source.close_date)}` : `Bid opened ${date(open)}`;
+            return (
+              <Link key={u.upload_id} to={`/upload/${u.upload_id}`} className="report-row">
+                <div style={{ minWidth: 0 }}>
+                  <div className="name">{titleCase(u.fields.company) || u.filename}</div>
+                  <div className="small faint">{u.source?.exchange ?? u.fields.exchange} · {state}{u.source?.price_band ? ` · ${u.source.price_band.replace(/Rs\./g, "₹")}` : ""}</div>
+                </div>
+                {(() => {
+                  const live = !!open && open <= today && !!u.source?.close_date && u.source.close_date >= today;
+                  return <span className={cx("pill", live && "pill-live")}>{live ? "Open" : open && open <= today ? "Recent" : "Upcoming"}</span>;
+                })()}
+                <span className="small nowrap" style={{ color: "var(--link)", fontWeight: 600 }}>{u.missing.length ? "Add price & check" : "Check"}</span>
+                <ArrowRight size={15} className="faint go" />
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      {data?.error && <p className="small faint" style={{ marginTop: 8 }}>The last refresh failed: {data.error}</p>}
+    </section>
   );
 }

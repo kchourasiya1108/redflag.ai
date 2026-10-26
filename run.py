@@ -11,6 +11,7 @@
     python run.py investigate NSE-2023-SYNOPTICS [--sample]  # one run, JSON to stdout
     python run.py llm-baseline             # single-prompt Nemotron baseline on the test split
     python run.py serve                    # FastAPI on 0.0.0.0:$PORT
+    python run.py upcoming                 # load open/upcoming SME IPOs and their RHPs
 """
 from __future__ import annotations
 
@@ -74,6 +75,13 @@ def main(argv: list[str]) -> int:
         gateway.budget = Budget(max_calls=2000, max_tokens=50_000_000)
         run_baseline(conn, gateway, cfg.cache / "pages", cfg.data / "backtest" / "llm_baseline.json")
         return 0
+
+    if args.stages[0] == "upcoming":
+        from pipeline.upcoming import refresh
+        summary = refresh(cfg, Fetcher(cfg.http_min_interval_s, cfg.http_timeout_s))
+        print(f"{len(summary['found'])} open or upcoming SME IPO(s) ready; "
+              f"{len(summary['errors'])} error(s)")
+        return 0 if not summary["errors"] else 1
 
     if args.stages[0] == "serve":
         import os

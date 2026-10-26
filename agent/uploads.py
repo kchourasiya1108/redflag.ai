@@ -268,6 +268,16 @@ def update(cfg: Settings, upload_id: str, changes: dict) -> dict:
     return record
 
 
+def set_source(cfg: Settings, upload_id: str, source: dict) -> dict:
+    """Mark an upload as listed by an exchange (pipeline/upcoming.py)."""
+    record = load(cfg, upload_id)
+    if record is None:
+        raise UploadError("unknown upload")
+    record["source"] = source
+    _save(cfg, record)
+    return record
+
+
 def missing(record: dict) -> list[str]:
     return [k for k in REQUIRED if not record["fields"].get(k)]
 

@@ -1,7 +1,7 @@
 import { ArrowRight, Banknote, Building2, Gavel, Landmark, PieChart, ReceiptIndianRupee, ShieldCheck } from "lucide-react";
 import { api } from "../api";
 import { IpoSearch } from "../components/Search";
-import { RecentUploads, UploadBox } from "./Upload";
+import { RecentUploads, UpcomingIpos, UploadBox } from "./Upload";
 import { SeverityBadge, Skeleton } from "../components/ui";
 import type { Metrics, RunSummary } from "../types";
 import { Link, RATING_TEXT, ago, date, odds, pct, rupees, useAsync } from "../lib";
@@ -53,6 +53,8 @@ export function Home() {
           <IpoSearch />
         </div>
       </section>
+
+      <UpcomingIpos />
 
       {rates && m && (
         <section className="trust">

@@ -41,6 +41,8 @@ export interface Upload {
   uploaded_at: number;
   detected: UploadFields & { price_source?: string | null; cin?: string | null; issue_type?: string | null };
   fields: UploadFields;
+  source?: { exchange?: string; symbol?: string; status?: string; open_date?: string | null;
+    close_date?: string | null; price_band?: string | null; url?: string; rhp_url?: string };
   missing: string[];
   required: string[];
   exchanges: string[];
