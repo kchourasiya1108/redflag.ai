@@ -165,8 +165,10 @@ def _upload(upload_id: str) -> dict:
 
 
 def _upload_view(record: dict) -> dict:
+    from agent.prefill import LABEL
+    sources = {k: LABEL.get(v, v) for k, v in (record.get("field_sources") or {}).items()}
     return {**record, "missing": uploads.missing(record), "required": list(uploads.REQUIRED),
-            "exchanges": list(uploads.EXCHANGES)}
+            "exchanges": list(uploads.EXCHANGES), "field_sources": sources}
 
 
 def _upload_detail(record: dict) -> dict:
@@ -186,6 +188,25 @@ def _upload_detail(record: dict) -> dict:
             "runs": [r for r in _history() if r["ipo_id"] == record["upload_id"]]}
 
 
+def _prefill_tools():
+    """(fetcher, gateway) for filling in an upload: the exchanges' sites and Nightshift."""
+    from agent.llm import gateway_from_env
+    from pipeline.common.http import Fetcher
+    cfg = settings()
+    gateway = gateway_from_env(cfg.data)
+    return Fetcher(cfg.http_min_interval_s, 15), gateway if gateway.providers else None
+
+
+def _create_upload(body: bytes, name: str) -> dict:
+    """Store the PDF and fill in its details from the archive, the exchange, the cover and AI."""
+    fetcher, gateway = _prefill_tools()
+    try:
+        return uploads.create(settings(), body, name, fetcher=fetcher, gateway=gateway)
+    finally:
+        if fetcher is not None:
+            fetcher.close()
+
+
 @router.post("/uploads", status_code=201)
 async def create_upload(request: Request) -> dict:
     """The RHP PDF as the request body (Content-Type: application/pdf)."""
@@ -194,7 +215,7 @@ async def create_upload(request: Request) -> dict:
         raise HTTPException(400, "send the RHP PDF as the request body")
     name = unquote(request.headers.get("x-filename", "rhp.pdf"))
     try:
-        record = await asyncio.to_thread(uploads.create, settings(), body, name)
+        record = await asyncio.to_thread(_create_upload, body, name)
     except uploads.UploadError as e:
         raise HTTPException(422, str(e)) from e
     return _upload_view(record)
@@ -262,12 +283,17 @@ def refresh_upcoming() -> dict:
 class StartRun(BaseModel):
     ipo_id: str
     sample_mode: bool = False
+    auto: bool = False          # live when Zetaris and Nightshift answer, else offline
 
 
 @router.post("/runs", status_code=202)
 def start_run(req: StartRun) -> dict:
     if uploads.is_upload(req.ipo_id) and (gaps := uploads.missing(_upload(req.ipo_id))):
         raise HTTPException(422, f"confirm these details first: {', '.join(gaps)}")
+    if req.auto:
+        st = status()
+        live = bool(st["zetaris"].get("ok") and st["meterless"].get("ok"))
+        req = StartRun(ipo_id=req.ipo_id, sample_mode=not live)
     run_id = f"run-{uuid.uuid4().hex[:8]}"
     with _lock:
         busy = [r for r in _runs.values() if r["status"] == "running" and not r["sample_mode"]]

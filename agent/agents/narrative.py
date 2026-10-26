@@ -72,7 +72,12 @@ class NarrativeReader(Agent):
         elif cap.data.get("rows"):
             summary = insider_discount(cap.data["rows"], ctx.meta.get("issue_price") or 0.0,
                                        ctx.as_of)
-            self._record(ctx, f4_insider_discount(summary), cap, "F4 insider discount", done)
+            finding = f4_insider_discount(summary)
+            if finding is None and not ctx.meta.get("issue_price"):
+                ctx.case.add_not_checked("F4 insider discount", "the issue price (price band) "
+                                         "is not announced yet", agent=self.name)
+            else:
+                self._record(ctx, finding, cap, "F4 insider discount", done)
         else:
             ctx.case.add_not_checked("F4 insider discount", cap.error or "no allotment rows read",
                                      agent=self.name)

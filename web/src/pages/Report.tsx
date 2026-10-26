@@ -43,10 +43,10 @@ export function Report({ result, cf, explain, trace }: {
           <Link to={`/ipo/${o.ipo.ipo_id}`} className="small row"><ChevronLeft size={14} /> {company}</Link>
           <div className="between" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
             <div className="stack-sm">
-              <div className="small faint">{o.ipo.exchange} · {rupees(o.ipo.issue_price)} a share{o.ipo.banker_raw ? ` · lead manager ${titleCase(o.ipo.banker_raw)}` : ""}{o.ipo.ipo_id.startsWith("UP-") ? " · from an uploaded RHP" : ""}</div>
+              <div className="small faint">{o.ipo.exchange} · {rupees(o.ipo.issue_price) === "–" ? "price band not announced" : `${rupees(o.ipo.issue_price)} a share`}{o.ipo.banker_raw ? ` · lead manager ${titleCase(o.ipo.banker_raw)}` : ""}{o.ipo.ipo_id.startsWith("UP-") ? " · from an uploaded RHP" : ""}</div>
               <h1>{company}</h1>
               <div className="small muted">
-                {o.ipo.open_date && o.as_of < o.ipo.open_date.slice(0, 10)
+                {o.ipo.open_date && o.ipo.open_date !== "None" && o.as_of < o.ipo.open_date.slice(0, 10)
                   ? <>Rated on <b>{date(o.as_of)}</b>, before the bid opens on {date(o.ipo.open_date)}, from the uploaded prospectus.</>
                   : <>Rated as of <b>{date(o.as_of)}</b>, the day the bid opened, using only what was known then.</>}
               </div>

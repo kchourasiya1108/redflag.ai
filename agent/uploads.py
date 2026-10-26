@@ -31,7 +31,7 @@ from pipeline.common import names as namelib
 PREFIX = "UP-"
 MAX_BYTES = 80 * 1024 * 1024
 MIN_PAGE_CHARS, MIN_TEXT_RATIO = 200, 0.8        # as pipeline/rhp.py
-REQUIRED = ("company", "open_date", "issue_price", "exchange")
+REQUIRED = ("company",)      # everything else is filled in where it exists, or left out
 EXCHANGES = ("NSE Emerge", "BSE SME")
 _ID = re.compile(r"^UP-[0-9a-f]{8}$")
 
@@ -200,8 +200,13 @@ def _save(cfg: Settings, record: dict) -> None:
     tmp.replace(path)
 
 
-def create(cfg: Settings, pdf: bytes, filename: str = "rhp.pdf") -> dict:
-    """Store an uploaded PDF, cache its page text and read the cover. Same PDF, same record."""
+def create(cfg: Settings, pdf: bytes, filename: str = "rhp.pdf", *, fetcher=None, gateway=None,
+           exchange_hint: dict | None = None, source: dict | None = None) -> dict:
+    """Store an RHP PDF, cache its page text and fill its details. Same PDF, same record.
+
+    The details come from agent/prefill.py (our archive, the exchange, the cover,
+    then a quote-checked AI read); an investor's later edits sit on top of them.
+    """
     from pipeline.rhp import page_texts
 
     if len(pdf) > MAX_BYTES:
@@ -209,26 +214,51 @@ def create(cfg: Settings, pdf: bytes, filename: str = "rhp.pdf") -> dict:
     if pdf[:4] != b"%PDF":
         raise UploadError("That file is not a PDF.")
     sha = hashlib.sha256(pdf).hexdigest()
-    for existing in list_all(cfg):
-        if existing["sha256"] == sha:
-            return existing
-    upload_id = f"{PREFIX}{uuid.uuid4().hex[:8]}"
-    pdf_path = folder(cfg) / upload_id / "rhp.pdf"
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    pdf_path.write_bytes(pdf)
-    try:
-        pages = page_texts(pdf_path, cfg.cache / "pages" / f"{sha}.json")
-    except Exception as e:   # pdfium raises its own error types on a broken file
-        raise UploadError(f"The PDF could not be read: {e}") from e
-    text_pages = sum(len(t) >= MIN_PAGE_CHARS for t in pages)
-    status = "ok" if pages and text_pages >= MIN_TEXT_RATIO * len(pages) else "scanned"
-    detected = cover_facts(pages) if status == "ok" else {}
-    record = {"upload_id": upload_id, "filename": Path(filename).name[:200], "sha256": sha,
-              "pages": len(pages), "text_pages": text_pages, "status": status,
-              "uploaded_at": time.time(), "detected": detected,
-              "fields": {k: v for k, v in detected.items() if k in EDITABLE and v not in (None, [], "")}}
+    record = next((r for r in list_all(cfg) if r["sha256"] == sha), None)
+    if record is None:
+        upload_id = f"{PREFIX}{uuid.uuid4().hex[:8]}"
+        pdf_path = folder(cfg) / upload_id / "rhp.pdf"
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(pdf)
+        try:
+            pages = page_texts(pdf_path, cfg.cache / "pages" / f"{sha}.json")
+        except Exception as e:   # pdfium raises its own error types on a broken file
+            raise UploadError(f"The PDF could not be read: {e}") from e
+        text_pages = sum(len(t) >= MIN_PAGE_CHARS for t in pages)
+        status = "ok" if pages and text_pages >= MIN_TEXT_RATIO * len(pages) else "scanned"
+        record = {"upload_id": upload_id, "filename": Path(filename).name[:200], "sha256": sha,
+                  "pages": len(pages), "text_pages": text_pages, "status": status,
+                  "uploaded_at": time.time(), "detected": cover_facts(pages) if status == "ok" else {},
+                  "edits": {}}
+    elif not (exchange_hint or source or fetcher):
+        return record
+    if source:
+        record["source"] = source
+    if record["status"] == "ok":
+        from agent import prefill
+        from pipeline.rhp import page_texts
+        pages = page_texts(folder(cfg) / record["upload_id"] / "rhp.pdf",
+                           cfg.cache / "pages" / f"{sha}.json")
+        record["prefilled"], record["provenance"], record["prefill_notes"] = prefill.prefill(
+            cfg, record, pages, fetcher=fetcher, gateway=gateway, exchange_hint=exchange_hint)
+    else:
+        record["prefilled"], record["provenance"], record["prefill_notes"] = {}, {}, []
+    _apply(record)
     _save(cfg, record)
     return record
+
+
+def _apply(record: dict) -> None:
+    """fields = what was filled in, with the investor's edits on top (None clears a field)."""
+    fields = {k: v for k, v in (record.get("prefilled") or {}).items() if k in EDITABLE}
+    prov = dict(record.get("provenance") or {})
+    for k, v in (record.get("edits") or {}).items():
+        if v is None:
+            fields.pop(k, None)
+            prov.pop(k, None)
+        else:
+            fields[k], prov[k] = v, "investor"
+    record["fields"], record["field_sources"] = fields, prov
 
 
 EDITABLE = {"company": str, "open_date": str, "issue_price": float, "exchange": str,
@@ -237,15 +267,20 @@ EDITABLE = {"company": str, "open_date": str, "issue_price": float, "exchange": 
 
 
 def update(cfg: Settings, upload_id: str, changes: dict) -> dict:
+    """The investor's corrections. A value equal to the filled-in one is not an edit."""
     record = load(cfg, upload_id)
     if record is None:
         raise UploadError("unknown upload")
-    fields = dict(record["fields"])
+    edits = dict(record.get("edits") or {})
+    filled = record.get("prefilled") or {}
     for key, value in changes.items():
         if key not in EDITABLE:
             continue                # read-only facts (CIN, auditor page) stay as detected
         if value in (None, "", []):
-            fields.pop(key, None)
+            if key in filled:
+                edits[key] = None
+            else:
+                edits.pop(key, None)
             continue
         try:
             if key == "lead_managers":
@@ -262,8 +297,12 @@ def update(cfg: Settings, upload_id: str, changes: dict) -> dict:
                     raise ValueError("must be positive")
         except (TypeError, ValueError) as e:
             raise UploadError(f"{key}: {e}") from e
-        fields[key] = value
-    record["fields"] = fields
+        if filled.get(key) == value:
+            edits.pop(key, None)
+        else:
+            edits[key] = value
+    record["edits"] = edits
+    _apply(record)
     _save(cfg, record)
     return record
 
@@ -295,17 +334,22 @@ def list_all(cfg: Settings) -> list[dict]:
 
 def as_of(record: dict, today: date | None = None) -> date:
     """Judge as of the bid date, or today if the bid has not opened yet."""
-    opened = date.fromisoformat(record["fields"]["open_date"])
-    return min(opened, today or date.today())
+    today = today or date.today()
+    if not record["fields"].get("open_date"):
+        return today                # dates not announced yet
+    return min(date.fromisoformat(record["fields"]["open_date"]), today)
 
 
 def meta(record: dict) -> dict:
     """The upload as an `ipo_meta` row."""
     f = record["fields"]
-    return {"ipo_id": record["upload_id"], "company": f["company"], "symbol": "",
-            "exchange": f["exchange"], "open_date": date.fromisoformat(f["open_date"]),
-            "issue_price": float(f["issue_price"]),
-            "banker_raw": ", ".join(f.get("lead_managers") or []), "rhp_url": ""}
+    return {"ipo_id": record["upload_id"], "company": f["company"],
+            "symbol": (record.get("source") or {}).get("symbol") or "",
+            "exchange": f.get("exchange") or "",
+            "open_date": date.fromisoformat(f["open_date"]) if f.get("open_date") else None,
+            "issue_price": float(f["issue_price"]) if f.get("issue_price") else None,
+            "banker_raw": ", ".join(f.get("lead_managers") or []),
+            "rhp_url": (record.get("source") or {}).get("rhp_url") or ""}
 
 
 # -- answering the IPO-specific templates during a run -----------------------------

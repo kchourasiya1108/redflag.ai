@@ -43,6 +43,8 @@ export interface Upload {
   fields: UploadFields;
   source?: { exchange?: string; symbol?: string; status?: string; open_date?: string | null;
     close_date?: string | null; price_band?: string | null; url?: string; rhp_url?: string };
+  field_sources?: Record<string, string>;
+  edits?: Partial<Record<keyof UploadFields, unknown>>;
   missing: string[];
   required: string[];
   exchanges: string[];

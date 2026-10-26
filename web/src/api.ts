@@ -38,12 +38,14 @@ export const api = {
   case: (id: string) => get<CaseFile>(`/api/runs/${id}/case`),
   explain: (id: string) => get<Explain>(`/api/runs/${id}/explain`),
   trace: (id: string) => get<TraceEvent[]>(`/api/runs/${id}/trace`),
-  start: (ipo_id: string, sample_mode: boolean) =>
+  start: (ipo_id: string, sample_mode: boolean, auto = false) =>
     get<{ run_id: string }>("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ipo_id, sample_mode }),
+      body: JSON.stringify({ ipo_id, sample_mode, auto }),
     }),
+  /** Live when Zetaris and Nightshift answer, otherwise an offline check. */
+  check: (ipo_id: string) => api.start(ipo_id, false, true),
   backtest: () => get<Backtest>("/api/backtest"),
   uploads: () => get<{ items: Upload[] }>("/api/uploads"),
   upcoming: () => get<{ items: Upload[]; last: { refreshed_at?: number; errors?: string[] }; refreshing: boolean; error: string | null }>("/api/upcoming"),

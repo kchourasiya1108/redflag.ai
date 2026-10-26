@@ -85,7 +85,7 @@ export const num = (x: number | null | undefined, digits = 2) =>
   x === null || x === undefined ? "–" : x.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: digits });
 
 export const rupees = (x: number | string | null | undefined) =>
-  x === null || x === undefined || x === "" ? "–" : `₹${Number(x).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  x === null || x === undefined || x === "" || isNaN(Number(x)) ? "–" : `₹${Number(x).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
 export function date(d: string | null | undefined): string {
   if (!d) return "–";

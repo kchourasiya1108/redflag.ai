@@ -13,6 +13,7 @@ def client(sample_cfg, monkeypatch):  # noqa: F811
     from fastapi.testclient import TestClient
     import app.api as api
     monkeypatch.setattr(api, "settings", lambda: sample_cfg)
+    monkeypatch.setattr(api, "_prefill_tools", lambda: (None, None))     # no network in tests
     shutil.copytree(ROOT / "data" / "sample" / "pages", sample_cfg.data / "sample" / "pages",
                     dirs_exist_ok=True)
     from app.main import app

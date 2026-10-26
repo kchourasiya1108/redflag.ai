@@ -6,11 +6,11 @@ import type { Status, Upload, UploadFields } from "../types";
 import { Link, ago, cx, date, navigate, useAsync, useInterval } from "../lib";
 import { ReportList, titleCase } from "./Home";
 
-/** Drop or pick an RHP PDF; on success, go to the confirm-details step. */
+/** Drop or pick an RHP PDF: we fill in the details and start the check straight away. */
 export function UploadBox({ compact }: { compact?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
-  const [phase, setPhase] = useState<"idle" | "sending" | "reading">("idle");
+  const [phase, setPhase] = useState<"idle" | "sending" | "reading" | "starting">("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +27,16 @@ export function UploadBox({ compact }: { compact?: boolean }) {
         setProgress(f);
         if (f >= 1) setPhase("reading");
       });
-      navigate(`/upload/${up.upload_id}`);
+      if (up.status !== "ok" || up.missing.length) {
+        navigate(`/upload/${up.upload_id}`);       // a scanned PDF, or no company name found
+        return;
+      }
+      setPhase("starting");
+      try {
+        navigate(`/run/${(await api.check(up.upload_id)).run_id}`);
+      } catch {
+        navigate(`/upload/${up.upload_id}`);       // e.g. another live check is running
+      }
     } catch (e) {
       setError((e as Error).message);
       setPhase("idle");
@@ -57,7 +66,7 @@ export function UploadBox({ compact }: { compact?: boolean }) {
           <>
             <div className="ic"><FileUp size={22} /></div>
             <div className="t">Upload the RHP of an upcoming SME IPO</div>
-            <div className="small muted">Drop the red herring prospectus PDF here, or <span className="link">choose a file</span>. Up to 80 MB.</div>
+            <div className="small muted">Drop the red herring prospectus PDF here, or <span className="link">choose a file</span>. That's all we need; we fill in the rest. Up to 80 MB.</div>
           </>
         ) : (
           <>
@@ -103,7 +112,9 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
     return v === undefined || v === null || v === "" || (typeof v === "number" && !(v > 0));
   });
   const managers = form.lead_managers?.length ? form.lead_managers : [""];
-  const fromCover = (k: keyof UploadFields) => up.detected[k] !== undefined && up.detected[k] !== null && JSON.stringify(up.detected[k]) === JSON.stringify(form[k]);
+  // Where each value came from; a field the investor has changed here says so.
+  const src = (k: keyof UploadFields) => JSON.stringify(form[k] ?? null) !== JSON.stringify(up.fields[k] ?? null)
+    ? "changed by you" : up.field_sources?.[k] ? `from ${up.field_sources[k]}` : form[k] ? undefined : "not found";
 
   const check = async () => {
     setSaving(true);
@@ -116,7 +127,7 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
       const saved = await api.editUpload(up.upload_id, changes);
       setUp(saved);
       if (saved.missing.length) throw new Error(`Please fill in: ${saved.missing.map((m) => LABELS[m] ?? m).join(", ")}`);
-      const r = await api.start(up.upload_id, useOffline);
+      const r = offline ? await api.start(up.upload_id, true) : await api.check(up.upload_id);
       navigate(`/run/${r.run_id}`);
     } catch (e) {
       const msg = (e as Error).message;
@@ -150,31 +161,31 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
             : <>Uploaded {up.filename} · {up.pages} pages</>}
         </div>
         <h1>{titleCase(form.company) || "Your prospectus"}</h1>
-        <p className="muted">Check the details we read from the cover. Book-built RHPs often leave the price blank ([●]); enter the top of the price band from the price band advertisement.</p>
+        <p className="muted">These are the details we used, filled in from {up.source ? "the exchange and the RHP" : "the RHP, our archive and the exchange"}. You don't need to change anything; correct a value only if it is wrong, then check again.</p>
       </div>
 
-      <Card title="Issue details" hint={<span className="row" style={{ gap: 6 }}><CheckCircle2 size={13} className="ok-ic" /> Read from the prospectus · <span className="req">*</span> needed for the check</span>}>
+      <Card title="Issue details" hint="Under each field: where the value came from">
         <div className="form-grid">
-          <Field label={LABELS.company} required ok={fromCover("company")} wide>
+          <Field label={LABELS.company} source={src("company")} wide>
             <input value={form.company ?? ""} onChange={(e) => set("company", e.target.value)} placeholder="e.g. Acme Industries Limited" />
           </Field>
-          <Field label={LABELS.open_date} required ok={fromCover("open_date")} hint={form.open_date ? (upcoming ? "Upcoming: judged on what is known today" : "Judged on what was known that day") : "From the cover, or the exchange's IPO calendar"}>
+          <Field label={LABELS.open_date} source={src("open_date")} hint={form.open_date ? (upcoming ? "Upcoming: judged on what is known today" : "Judged on what was known that day") : "Not announced yet: judged on what is known today"}>
             <input type="date" value={form.open_date ?? ""} onChange={(e) => set("open_date", e.target.value)} />
           </Field>
-          <Field label={LABELS.issue_price} required ok={fromCover("issue_price")} hint={up.detected.price_source ?? "Top of the price band"}>
+          <Field label={LABELS.issue_price} source={src("issue_price")} hint={form.issue_price ? "Fixed price, or the top of the price band" : "Price band not announced yet: the cheap-insider-shares check waits for it"}>
             <input type="number" min="1" step="0.01" inputMode="decimal" value={form.issue_price ?? ""} onChange={(e) => set("issue_price", e.target.value === "" ? undefined : Number(e.target.value))} placeholder="e.g. 120" />
           </Field>
-          <Field label={LABELS.exchange} required ok={fromCover("exchange")}>
+          <Field label={LABELS.exchange} source={src("exchange")}>
             <div className="segmented" role="radiogroup" aria-label="Exchange">
               {up.exchanges.map((x) => (
                 <button key={x} type="button" role="radio" aria-pressed={form.exchange === x} aria-checked={form.exchange === x} onClick={() => set("exchange", x)}>{x}</button>
               ))}
             </div>
           </Field>
-          <Field label={LABELS.lot_size} ok={fromCover("lot_size")}>
+          <Field label={LABELS.lot_size} source={src("lot_size")}>
             <input type="number" min="1" step="1" value={form.lot_size ?? ""} onChange={(e) => set("lot_size", e.target.value === "" ? undefined : Number(e.target.value))} />
           </Field>
-          <Field label={LABELS.lead_managers} ok={fromCover("lead_managers")} wide hint="We look up each lead manager's past SME IPOs">
+          <Field label={LABELS.lead_managers} source={src("lead_managers")} wide hint="We look up each lead manager's past SME IPOs">
             <div className="stack-sm">
               {managers.map((m, i) => (
                 <div className="row" key={i}>
@@ -185,13 +196,13 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
               {managers.length < 4 && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: "flex-start" }} onClick={() => set("lead_managers", [...managers, ""])}><Plus size={14} /> Add another</button>}
             </div>
           </Field>
-          <Field label={LABELS.auditor} ok={fromCover("auditor")}>
+          <Field label={LABELS.auditor} source={src("auditor")}>
             <input value={form.auditor ?? ""} onChange={(e) => set("auditor", e.target.value)} />
           </Field>
-          <Field label={LABELS.registrar} ok={fromCover("registrar")}>
+          <Field label={LABELS.registrar} source={src("registrar")}>
             <input value={form.registrar ?? ""} onChange={(e) => set("registrar", e.target.value)} />
           </Field>
-          <Field label={LABELS.market_maker} ok={fromCover("market_maker")}>
+          <Field label={LABELS.market_maker} source={src("market_maker")}>
             <input value={form.market_maker ?? ""} onChange={(e) => set("market_maker", e.target.value)} />
           </Field>
         </div>
@@ -200,10 +211,10 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
       <Card>
         <div className="stack">
           {error && <ErrorBox error={error} />}
-          {gaps.length > 0 && <p className="small muted">Still needed: {gaps.map((g) => LABELS[g] ?? g).join(", ")}.</p>}
-          <button className="btn btn-primary btn-lg" onClick={check} disabled={saving || gaps.length > 0 || !status}>
-            {saving || !status ? <Loader2 size={17} className="spin" /> : <Search size={17} />}
-            {saving ? "Starting…" : !status ? "Checking our live data…" : "Check this IPO"}
+          {gaps.length > 0 && <p className="small muted">We could not find the company name in this file; please type it.</p>}
+          <button className="btn btn-primary btn-lg" onClick={check} disabled={saving || gaps.length > 0}>
+            {saving ? <Loader2 size={17} className="spin" /> : <Search size={17} />}
+            {saving ? "Starting…" : runs.length ? "Check again" : "Check this IPO"}
           </button>
           <p className="small faint" style={{ textAlign: "center", marginTop: -6 }}>
             {useOffline ? "Offline check against our archive, without the AI reading steps" : "Usually takes about 3 minutes"}
@@ -230,13 +241,18 @@ function UploadDetails({ upload: initial, runs, status }: { upload: Upload; runs
   );
 }
 
-function Field({ label, required, ok, hint, wide, children }: {
-  label: string; required?: boolean; ok?: boolean; hint?: string; wide?: boolean; children: React.ReactNode;
+function Field({ label, source, hint, wide, children }: {
+  label: string; source?: string; hint?: string; wide?: boolean; children: React.ReactNode;
 }) {
   return (
     <label className={cx("field", wide && "wide")} onClick={(e) => (e.target as HTMLElement).tagName === "BUTTON" && e.preventDefault()}>
-      <span className="lbl">{label}{required && <span className="req"> *</span>}{ok && <CheckCircle2 size={12} className="ok-ic" aria-label="read from the prospectus" />}</span>
+      <span className="lbl">{label}</span>
       {children}
+      {source && (
+        <span className={cx("tiny src", source === "not found" && "none")}>
+          {source !== "not found" && source !== "changed by you" && <CheckCircle2 size={11} className="ok-ic" />} {source.charAt(0).toUpperCase() + source.slice(1)}
+        </span>
+      )}
       {hint && <span className="tiny faint">{hint}</span>}
     </label>
   );
@@ -310,7 +326,7 @@ export function UpcomingIpos() {
                   const live = !!open && open <= today && !!u.source?.close_date && u.source.close_date >= today;
                   return <span className={cx("pill", live && "pill-live")}>{live ? "Open" : open && open <= today ? "Recent" : "Upcoming"}</span>;
                 })()}
-                <span className="small nowrap" style={{ color: "var(--link)", fontWeight: 600 }}>{u.missing.length ? "Add price & check" : "Check"}</span>
+                <CheckNow id={u.upload_id} />
                 <ArrowRight size={15} className="faint go" />
               </Link>
             );
@@ -319,5 +335,24 @@ export function UpcomingIpos() {
       )}
       {data?.error && <p className="small faint" style={{ marginTop: 8 }}>The last refresh failed: {data.error}</p>}
     </section>
+  );
+}
+
+/** One click from a list row to a running check. */
+function CheckNow({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button className="btn btn-sm btn-primary" disabled={busy} onClick={async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setBusy(true);
+      try {
+        navigate(`/run/${(await api.check(id)).run_id}`);
+      } catch {
+        navigate(`/upload/${id}`);
+      }
+    }}>
+      {busy ? <Loader2 size={13} className="spin" /> : <Search size={13} />} Check
+    </button>
   );
 }

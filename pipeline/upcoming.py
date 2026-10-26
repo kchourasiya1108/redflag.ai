@@ -14,6 +14,7 @@ is read from the cover; the investor can still correct them.
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 import time
@@ -73,27 +74,19 @@ def refresh(cfg: Settings, fetcher, log=print) -> dict:
 
 
 def load_issue(cfg: Settings, fetcher, issue: dict) -> dict:
-    """Download one issue's RHP into an upload record, keyed by the PDF, with exchange values."""
+    """Download one issue's RHP into an upload record, filled with the exchange's values."""
     body = fetcher.get(issue["rhp_url"], referer=issue.get("referer"))
     if body is None:
         raise uploads.UploadError("the RHP link returned nothing")
-    record = uploads.create(cfg, pick_rhp_pdf(body, issue["rhp_url"]),
-                            f"{issue['company']} RHP.pdf")
     source = {k: issue.get(k) for k in ("exchange", "symbol", "status", "open_date", "close_date",
                                         "price_band", "url", "rhp_url")}
-    first_time = not record.get("source")
-    record = uploads.set_source(cfg, record["upload_id"], source)
-    if first_time:      # exchange values fill the form once; the investor's edits stay
-        overrides = {k: issue[k] for k in ("company", "open_date", "issue_price", "exchange",
-                                           "lead_managers", "registrar", "market_maker",
-                                           "lot_size") if issue.get(k)}
-        record = uploads.update(cfg, record["upload_id"], overrides)
-    return record
+    return uploads.create(cfg, pick_rhp_pdf(body, issue["rhp_url"]), f"{issue['company']} RHP.pdf",
+                          exchange_hint=issue, source=source)
 
 
 # -- NSE ------------------------------------------------------------------------
 
-def nse_issues(cfg: Settings, fetcher) -> list[dict]:
+def nse_issues(cfg: Settings, fetcher, need_rhp: bool = True) -> list[dict]:
     rows = json.loads(fetcher.get(NSE_UPCOMING, referer=NSE_REFERER))
     out = []
     for row in rows if isinstance(rows, list) else []:
@@ -104,7 +97,7 @@ def nse_issues(cfg: Settings, fetcher) -> list[dict]:
         info = universe.issue_info(detail)
         rhp = next((u for t in ("Red Herring Prospectus", "Prospectus", "Offer Document")
                     if (u := universe._url(info.get(t)))), None)
-        if not rhp:
+        if not rhp and need_rhp:
             continue
         band = [float(x) for x in re.findall(r"Rs\.?\s*([\d.]+)", row.get("issuePrice") or "")]
         opened = universe.parse_date(row.get("issueStartDate"))
@@ -122,17 +115,41 @@ def nse_issues(cfg: Settings, fetcher) -> list[dict]:
             "market_maker": universe._clean(info.get("Market Maker")),
             "lot_size": universe.lot_size(info),
             "url": f"https://www.nseindia.com/market-data/issue-information?symbol={symbol}&series=SME&type=Active",
-            "rhp_url": rhp, "referer": NSE_REFERER})
+            "rhp_url": rhp, "referer": NSE_REFERER, "source": "nse"})
     return out
 
 
 # -- BSE SME --------------------------------------------------------------------
+
+BSE_PUBLIC = "https://www.bsesme.com/PublicIssues/PublicIssues.aspx?id=1"
+
+
+def bse_public_issues(fetcher) -> list[dict]:
+    """BSE SME's live and forthcoming issues: dates, offer price (once fixed) and status."""
+    page = fetcher.get(BSE_PUBLIC, referer="https://www.bsesme.com/").decode("utf-8", "ignore")
+    out = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", page, re.S):
+        tds = [html.unescape(re.sub(r"<[^>]+>", "", t)).strip()
+               for t in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+        if len(tds) < 7 or not re.match(r"\d{2}-\d{2}-\d{4}$", tds[1] or ""):
+            continue
+        to_iso = lambda d: date(int(d[6:]), int(d[3:5]), int(d[:2])).isoformat()
+        band = [float(x) for x in re.findall(r"[\d.]+", tds[3].replace(",", ""))]
+        out.append({"company": tds[0], "open_date": to_iso(tds[1]), "close_date": to_iso(tds[2]),
+                    "issue_price": band[-1] if band else None, "price_band": tds[3] or None,
+                    "exchange": "BSE SME", "status": tds[6], "source": "bse"})
+    return out
+
 
 def bse_issues(cfg: Settings, fetcher, today: date | None = None) -> list[dict]:
     page = fetcher.get(bse_docs.INDEX)
     index = bse_docs.parse_index(page.decode("utf-8", "ignore"))
     since = (today or date.today()) - timedelta(days=BSE_RECENT_DAYS)
     archived = _archived_names(cfg)
+    try:
+        public = bse_public_issues(fetcher)
+    except Exception:           # the index alone still lists the RHPs
+        public = []
     out = []
     for doc in index:
         if not doc["rhp_url"] or doc["prospectus_url"] or doc["boa_url"]:
@@ -141,9 +158,13 @@ def bse_issues(cfg: Settings, fetcher, today: date | None = None) -> list[dict]:
             continue
         if doc["norm"] in archived:
             continue
-        out.append({"exchange": "BSE SME", "symbol": doc["bse_id"], "status": "Upcoming",
-                    "company": doc["company"], "rhp_url": doc["rhp_url"],
-                    "url": bse_docs.INDEX, "referer": bse_docs.INDEX})
+        live = next((p for p in public if names.similarity(p["company"], doc["company"]) >= 0.9), {})
+        out.append({"exchange": "BSE SME", "symbol": doc["bse_id"], "company": doc["company"],
+                    "status": live.get("status") or "Upcoming", "open_date": live.get("open_date"),
+                    "close_date": live.get("close_date"), "issue_price": live.get("issue_price"),
+                    "price_band": live.get("price_band"), "rhp_url": doc["rhp_url"],
+                    "url": BSE_PUBLIC if live else bse_docs.INDEX, "referer": bse_docs.INDEX,
+                    "source": "bse"})
     return sorted(out, key=lambda d: d["symbol"], reverse=True)    # newest BSE ids first
 
 

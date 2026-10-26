@@ -631,3 +631,5 @@ ul.ticks li::before { content: "✓"; position: absolute; left: 2px; color: var(
 .field input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent); }
 .uploads-section:has(.report-list:empty), .uploads-section:not(:has(.report-list)) { display: none; }
 .pill-live { background: var(--low-soft); color: var(--low-text); border-color: transparent; }
+.field .src { color: var(--text-3); display: inline-flex; align-items: center; gap: 4px; }
+.field .src.none { color: var(--elev-text); }

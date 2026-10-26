@@ -79,16 +79,19 @@ def test_upload_confirm_and_check(client, rhp_pdf):  # noqa: F811
     uid = up["upload_id"]
     assert uid.startswith("UP-") and up["status"] == "ok" and up["filename"] == "Acme RHP.pdf"
     assert up["fields"]["company"] == "ACME PRECISION TOOLS LIMITED"
-    assert up["missing"] == ["issue_price"]
+    assert up["missing"] == [] and "issue_price" not in up["fields"]   # [●]: not announced yet
+    assert up["field_sources"]["open_date"] == "the RHP cover"
     # The same file again is the same upload.
     again = client.post("/api/uploads", content=rhp_pdf, headers={"Content-Type": "application/pdf"})
     assert again.json()["upload_id"] == uid
-    # Checking before the details are complete is refused.
-    assert client.post("/api/runs", json={"ipo_id": uid, "sample_mode": True}).status_code == 422
     assert client.patch(f"/api/uploads/{uid}", json={"issue_price": -5}).status_code == 422
     assert client.patch(f"/api/uploads/{uid}", json={"exchange": "LSE"}).status_code == 422
     done = client.patch(f"/api/uploads/{uid}", json={"issue_price": 120, "cin": "ignored"}).json()
-    assert done["missing"] == [] and done["fields"]["issue_price"] == 120.0
+    assert done["fields"]["issue_price"] == 120.0 and done["field_sources"]["issue_price"] == "you"
+    # Clearing an edit goes back to what was filled in.
+    back = client.patch(f"/api/uploads/{uid}", json={"issue_price": None}).json()
+    assert "issue_price" not in back["fields"] and back["edits"] == {}
+    client.patch(f"/api/uploads/{uid}", json={"issue_price": 120})
 
     detail = client.get(f"/api/ipos/{uid}").json()
     assert detail["uploaded"] and detail["ipo"]["company"].startswith("ACME")
@@ -161,3 +164,44 @@ def test_upcoming_lists_only_open_sme_issues_and_loads_their_rhps(sample_cfg, rh
     uploads.update(sample_cfg, nse_rec["upload_id"], {"issue_price": 97})
     upcoming.refresh(sample_cfg, fetcher, log=lambda *_: None)
     assert uploads.load(sample_cfg, nse_rec["upload_id"])["fields"]["issue_price"] == 97.0
+
+
+def test_prefill_takes_a_known_ipo_from_the_archive(sample_cfg):  # noqa: F811
+    from agent import prefill
+    rec = {"detected": {"company": "SYNOPTICS TECHNOLOGIES LIMITED", "cin": "U72900MH2008PLC187575"}}
+    fields, prov, _ = prefill.prefill(sample_cfg, rec, [])
+    assert fields["open_date"] == "2023-06-30" and fields["issue_price"] == 237.0
+    assert fields["lead_managers"] == ["First Overseas Capital Limited"] and prov["issue_price"] == "archive"
+
+
+class FakeGateway:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def generate(self, prompt, system=None, *, schema=None, route="", purpose=""):
+        from types import SimpleNamespace
+        return SimpleNamespace(parsed=schema.model_validate(self.reply))
+
+
+def test_ai_cover_read_keeps_only_quoted_values():
+    from agent import prefill
+    pages = ["\n".join(COVER + ["Price Band: Rs. 95 to Rs. 100 per Equity Share",
+                                "MARKET MAKER: Shreni Shares Limited"])]
+    reply = {
+        "issue_price": {"value": "100", "quote": "Price Band: Rs. 95 to Rs. 100 per Equity Share"},
+        "market_maker": {"value": "Shreni Shares Limited", "quote": "MARKET MAKER: Shreni Shares Limited"},
+        "auditor": {"value": "Made Up & Co", "quote": "Statutory Auditor: Made Up & Co"},   # not on the page
+        "lot_size": {"value": "1200", "quote": "Price Band: Rs. 95 to Rs. 100"},          # quote lacks 1200
+    }
+    got = prefill.ai_cover(FakeGateway(reply), pages, ["issue_price", "market_maker", "auditor", "lot_size"])
+    assert got == {"issue_price": 100.0, "market_maker": "Shreni Shares Limited"}
+
+
+def test_auto_mode_runs_offline_when_live_services_are_down(client, rhp_pdf, monkeypatch):  # noqa: F811
+    import app.api as api
+    monkeypatch.setattr(api, "status", lambda probe=True: {"zetaris": {"ok": False}, "meterless": {"ok": True}})
+    uid = client.post("/api/uploads", content=rhp_pdf, headers={"Content-Type": "application/pdf"}).json()["upload_id"]
+    run_id = client.post("/api/runs", json={"ipo_id": uid, "auto": True}).json()["run_id"]
+    state = _wait(client, run_id)
+    assert state["status"] == "success"
+    assert "offline" in state["result"]["output"]["data_source"] or "sample" in state["result"]["output"]["data_source"]
