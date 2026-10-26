@@ -257,6 +257,9 @@ def test_zetaris_statements_mask_secrets():
     assert zetaris_setup.statements({k: v for k, v in env.items() if k != "RF_FILES_BASE"})
     info = zetaris_setup.pg_conninfo(env, "archive")
     assert "host=db" in info and "dbname=rf_archive" in info and "user=rf" in info
+    # Zetaris in Docker reaches "db"; this machine loads through the published port.
+    local = zetaris_setup.pg_conninfo({**env, "RF_PG_LOCAL_SERVER": "127.0.0.1:5432"}, "archive")
+    assert "host=127.0.0.1" in local and "port=5432" in local and "dbname=rf_archive" in local
     files = zetaris_setup.statements({"RF_FILES_BASE": "s3a://b/rf"})
     # Zetaris accepts only letters, digits, _ . - and , in a description.
     import re

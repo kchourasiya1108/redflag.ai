@@ -113,10 +113,18 @@ def pg_jdbc_url(env: dict[str, str], db: str | None = None) -> str:
 
 
 def pg_conninfo(env: dict[str, str] | None = None, db: str | None = None) -> str:
-    """libpq conninfo for the same database Zetaris reaches over JDBC."""
+    """libpq conninfo for the same database Zetaris reaches over JDBC.
+
+    When Zetaris reaches Postgres by a Docker network name (RF_PG_JDBC_URL =
+    jdbc:postgresql://redflag-pg:5432/...), RF_PG_LOCAL_SERVER (host:port) is
+    where this machine reaches the same server, for loading.
+    """
     env = dict(os.environ if env is None else env)
     from psycopg.conninfo import make_conninfo
     url = pg_jdbc_url(env, db)[len("jdbc:"):].split("?", 1)[0]
+    if local := env.get("RF_PG_LOCAL_SERVER"):
+        server = _pg_parts(env)[0]
+        url = url.replace(f"//{server}/", f"//{local}/", 1)
     return make_conninfo(url, user=_need(env, "RF_PG_USER"), password=_need(env, "RF_PG_PASSWORD"))
 
 

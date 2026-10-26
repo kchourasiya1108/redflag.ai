@@ -232,3 +232,6 @@ logs/
 output/
 data/publish/
 data/gates/*.tmp
+
+# Backup of the Linux-PC Zetaris settings
+.env.linux-pc
