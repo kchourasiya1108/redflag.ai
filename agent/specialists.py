@@ -12,6 +12,8 @@ are never compared with full years).
 """
 from __future__ import annotations
 
+from datetime import date
+
 from dataclasses import dataclass
 from statistics import mean
 from typing import Protocol
@@ -89,6 +91,40 @@ def ebitda(f: FactSource, fy: str) -> float | None:
     return parts[0] + parts[1] + parts[2] - (f.get("pl.other_income", fy) or 0.0)
 
 
+def equity(f: FactSource, fy: str) -> float | None:
+    """Total equity, or share capital plus reserves where the total is not printed."""
+    total = f.get("bs.equity", fy)
+    if total is not None:
+        return total
+    cap, res = f.get("bs.share_capital", fy), f.get("bs.reserves", fy)
+    return None if cap is None or res is None else cap + res
+
+
+def ratios(f: FactSource) -> dict[str, float | None]:
+    """The data guide's other RHP parameters (9.1), latest full year, from verified facts."""
+    ys = f.years()
+    t, t1 = (ys + [None, None])[:2]
+    if not t:
+        return {}
+    rev, pat, fin = f.get("pl.revenue", t), f.get("pl.pat", t), f.get("pl.finance_cost", t)
+    e, eq = ebitda(f, t), equity(f, t)
+    debt_parts = [f.get("bs.lt_borrowings", t), f.get("bs.st_borrowings", t)]
+    debt = None if all(d is None for d in debt_parts) else sum(d or 0.0 for d in debt_parts)
+    recv_days = _ratio(f.get("bs.receivables", t), rev)
+    recv_days_prev = _ratio(f.get("bs.receivables", t1), f.get("pl.revenue", t1)) if t1 else None
+    return {
+        "f_ebitda_margin": _ratio(e, rev),
+        "f_pat_margin": _ratio(pat, rev),
+        "f_debt_equity": _ratio(debt, eq) if eq and eq > 0 else None,
+        "f_interest_cover": _ratio(e, fin) if fin and fin > 0 else None,
+        "f_ronw": _ratio(pat, eq) if eq and eq > 0 else None,
+        "f_pat_growth": _growth(pat, f.get("pl.pat", t1)) if t1 else None,
+        "f_recv_days": recv_days * 365 if recv_days is not None else None,
+        "f_recv_days_change": ((recv_days - recv_days_prev) * 365
+                               if recv_days is not None and recv_days_prev is not None else None),
+    }
+
+
 def rhp_features(f: FactSource) -> dict[str, float | None]:
     """Model inputs from the restated numbers (None where a verified fact is missing)."""
     ys = f.years()
@@ -111,7 +147,9 @@ def rhp_features(f: FactSource) -> dict[str, float | None]:
         if t else None,
         "f_rev_growth": rev_g,
         "f_top10_customers": f.get("biz.top10_customers_pct", ""),
-    }
+        "f_top5_customers": f.get("biz.top5_customers_pct", ""),
+        "f_top10_suppliers": f.get("biz.top10_suppliers_pct", ""),
+    } | ratios(f)
 
 
 def f1_paper_profits(f: FactSource) -> Finding | None:
@@ -176,14 +214,31 @@ def f3_eligibility(f: FactSource) -> Finding | None:
     return Finding("F3", sev, {"ebitda": known, "near_floor_years": near}, text, pages)
 
 
+# Starting values (data guide 9.1: "high"); the backtest decides how much they matter.
+CONCENTRATION_AT = {1: (40, 25), 3: (70, 50), 5: (80, 60), 10: (90, 70)}    # (HIGH, ELEVATED) %
+
+
 def f5_concentration(f: FactSource) -> Finding | None:
-    share = f.get("biz.top10_customers_pct", "")
-    if share is None:
+    """Dependence on a few customers or suppliers: the strongest top-N share printed."""
+    found = []
+    for who in ("customers", "suppliers"):
+        for n, (high, elev) in CONCENTRATION_AT.items():
+            share = f.get(f"biz.top{n}_{who}_pct", "")
+            if share is not None:
+                sev = "HIGH" if share >= high else "ELEVATED" if share >= elev else "LOW"
+                found.append((("LOW", "ELEVATED", "HIGH").index(sev), who, n, share,
+                              f.page(f"biz.top{n}_{who}_pct", "")))
+    if not found:
         return None
-    sev = "HIGH" if share >= 90 else "ELEVATED" if share >= 70 else "LOW"
-    return Finding("F5", sev, {"top10_customers_pct": share},
-                   f"The top 10 customers account for {share:.1f}% of revenue.",
-                   [p for p in (f.page("biz.top10_customers_pct", ""),) if p])
+    rank, who, n, share, page = max(found, key=lambda x: (x[0], x[1] == "customers", -x[2]))
+    sev = ("LOW", "ELEVATED", "HIGH")[rank]
+    shown = sorted(found, key=lambda x: (x[1], x[2]))
+    text = ("; ".join(f"top {m} {w} {v:.1f}%" for _, w, m, v, _ in shown) + ". "
+            + (f"The top {n} {who} alone account for {share:.1f}% of "
+               f"{'revenue' if who == 'customers' else 'purchases'}." if sev != "LOW" else
+               "No single group of customers or suppliers dominates."))
+    return Finding("F5", sev, {f"top{m}_{w}_pct": v for _, w, m, v, _ in found},
+                   text[0].upper() + text[1:], sorted({p for *_, p in found if p}))
 
 
 SPECIALISTS = (f1_paper_profits, f2_profit_spike, f3_eligibility, f5_concentration)
@@ -251,3 +306,29 @@ def f9_use_of_money(summary: dict, pages: list[int]) -> Finding | None:
             + (". The GCP amount is above the cap the rules allowed at the bid date." if over
                else "."))
     return Finding("F9", sev, summary, text, pages)
+
+
+# SEBI's SME amendment (effective 3 Mar 2025): an offer for sale may be at most 20% of
+# the issue, and a seller may sell at most half their holding.
+OFS_CAP_FROM = date(2025, 3, 3)
+OFS_CAP = 0.20
+
+
+def f19_offer_for_sale(shares: dict, as_of: date) -> Finding | None:
+    """Sellers cashing out: the offer-for-sale share of the issue (data guide 9.1)."""
+    total, ofs = shares.get("issue_shares"), shares.get("ofs_shares")
+    if not total:
+        return None
+    share = (ofs or 0) / total
+    capped = as_of >= OFS_CAP_FROM
+    if capped:
+        sev = "HIGH" if share > OFS_CAP + 1e-9 else "ELEVATED" if share >= 0.15 else "LOW"
+    else:
+        sev = "ELEVATED" if share >= 0.5 else "LOW"
+    text = (f"{share:.0%} of the issue is an offer for sale by existing shareholders: that money goes "
+            f"to the sellers, not the company." if share > 0 else
+            "The whole issue is new shares: none of the money goes to selling shareholders.")
+    if capped and share > OFS_CAP + 1e-9:
+        text += " That is above the 20% cap in the SME rules at the bid date."
+    return Finding("F19", sev, {"ofs_share": round(share, 4), "issue_shares": total,
+                                "ofs_shares": ofs or 0, "cap": OFS_CAP if capped else None}, text, [])

@@ -206,6 +206,28 @@ def auditor_features(data: DataPort, ipo_id: str, as_of: date,
             "f_auditor_crash": rate, "f_auditor_n": float(len(history))}
 
 
+def market_maker_features(data: DataPort, ipo_id: str, as_of: date,
+                          base_rate: float | None) -> dict[str, float | None]:
+    """F13 (market maker): the share of the market maker's earlier SME IPOs that ended
+    badly, known before as_of, shrunk like the banker's (data guide 9.2)."""
+    rows = data.run("ipo_market_maker", ipo_id=ipo_id).rows
+    if not rows:
+        return {"f_mm_crash": None, "f_mm_n": None}
+    history = [r for r in data.run("market_maker_track_record", mm_id=rows[0]["mm_id"],
+                                   as_of=as_of).rows if r["ipo_id"] != ipo_id]
+    bad = sum(adverse_as_of(r, as_of) for r in history)
+    rate = ((bad + SHRINK_K * base_rate) / (len(history) + SHRINK_K)
+            if base_rate is not None else None)
+    return {"f_mm_crash": rate, "f_mm_n": float(len(history))}
+
+
+def issue_features(data: DataPort, ipo_id: str) -> dict[str, float | None]:
+    """The offer-for-sale share of the issue (F19)."""
+    rows = data.run("ipo_issue", ipo_id=ipo_id).rows
+    total = rows[0]["issue_shares"] if rows else None
+    return {"f_ofs_share": ((rows[0]["ofs_shares"] or 0) / total) if total else None}
+
+
 def compute_features(ipo_id: str, as_of: date, data: DataPort,
                      facts: FactSource | None = None, *,
                      named: list[Named] | None = None) -> dict[str, float | None]:
@@ -222,6 +244,8 @@ def compute_features(ipo_id: str, as_of: date, data: DataPort,
         named = archive_parties(data, ipo_id, meta[0]["company"] if meta else ipo_id)
     features |= watchlist_features(watchlist_links(data, ipo_id, as_of, named))
     features |= auditor_features(data, ipo_id, as_of, features.get("base_rate"))
+    features |= market_maker_features(data, ipo_id, as_of, features.get("base_rate"))
+    features |= issue_features(data, ipo_id)
     # RHP features: verified restated numbers only. The backtest reads past
     # extractions from Zetaris (ArchiveFacts); a live run passes CaseFileFacts.
     features |= rhp_features(facts if facts is not None else ArchiveFacts(data, ipo_id))

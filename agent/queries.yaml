@@ -237,3 +237,50 @@ person_past_ipos:
     WHERE p.person_key = :person_key
       AND i.open_date < :as_of
     ORDER BY i.open_date, i.ipo_id
+
+ipo_market_maker:
+  time_free: true      # the market maker is named in the RHP
+  params: {ipo_id: id}
+  columns: {mm_id: int, canonical_name: str}
+  max_rows: 3
+  sql: >
+    SELECT im.mm_id, m.canonical_name
+    FROM RF_ARCHIVE.ipo_market_maker im
+    JOIN RF_ARCHIVE.market_makers m ON m.mm_id = im.mm_id
+    WHERE im.ipo_id = :ipo_id
+
+market_maker_track_record:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {mm_id: int, as_of: date}
+  columns: {ipo_id: str, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 2000
+  sql: >
+    SELECT l.ipo_id, l.crashed, l.suspended, l.sebi_action, l.sebi_action_date,
+           l.outcome_known_on
+    FROM RF_ARCHIVE.ipo_market_maker im
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = im.ipo_id
+    WHERE im.mm_id = :mm_id
+      AND l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
+
+market_maker_names:
+  time_free: true      # reference data: the archive's market makers and their spellings
+  params: {}
+  columns: {mm_id: int, canonical_name: str, alias: str}
+  max_rows: 2000
+  sql: >
+    SELECT m.mm_id, m.canonical_name, a.alias
+    FROM RF_ARCHIVE.market_makers m
+    LEFT JOIN RF_ARCHIVE.mm_alias a ON a.mm_id = m.mm_id
+    ORDER BY m.mm_id
+
+ipo_issue:
+  time_free: true      # the issue's size and split are printed on the RHP cover
+  params: {ipo_id: id}
+  columns: {issue_shares: int, fresh_shares: int, ofs_shares: int}
+  max_rows: 1
+  sql: >
+    SELECT issue_shares, fresh_shares, ofs_shares
+    FROM RF_ARCHIVE.ipos
+    WHERE ipo_id = :ipo_id

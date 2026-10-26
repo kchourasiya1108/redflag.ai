@@ -170,6 +170,7 @@ def cover_facts(pages: list[str]) -> dict:
         "people": offer_docs.people(pages),
         "issue_type": issue["issue_type"],
         "issue_shares": issue["issue_shares"],
+        "fresh_shares": issue["fresh_shares"], "ofs_shares": issue["ofs_shares"],
     }
 
 
@@ -396,6 +397,11 @@ def local_rows(record: dict, port, cfg: Settings | None = None) -> dict[str, lis
             auditor = [{"auditor_id": hit["auditor_id"], "canonical_name": hit["canonical_name"],
                         "changed_3y": record["detected"].get("auditor_changed_3y"),
                         "page": record["detected"].get("auditor_page")}]
+    market_maker = []
+    if f.get("market_maker"):
+        hit = _match(f["market_maker"], port.run("market_maker_names").rows, "canonical_name")
+        if hit:
+            market_maker = [{"mm_id": hit["mm_id"], "canonical_name": hit["canonical_name"]}]
     parties = [{"role": role, "party_id": None, "canonical_name": f[key], "raw_name": f[key]}
                for role, key in (("auditor", "auditor"), ("market_maker", "market_maker"),
                                  ("registrar", "registrar")) if f.get(key)]
@@ -414,4 +420,8 @@ def local_rows(record: dict, port, cfg: Settings | None = None) -> dict[str, lis
         people = offer_docs.people(pages) if pages else []
     return {"ipo_meta": [meta(record)], "ipo_bankers": ipo_bankers, "ipo_parties": parties,
             "ipo_rhp_doc": [doc], "ipo_auditor": auditor, "ipo_facts": [],
+            "ipo_market_maker": market_maker,
+            "ipo_issue": [{k: record["detected"].get(k) for k in ("issue_shares", "fresh_shares",
+                                                                   "ofs_shares")}]
+            if record["detected"].get("issue_shares") else [],
             "ipo_people": [{k: p[k] for k in ("person_key", "name", "role")} for p in people or []]}

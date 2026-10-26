@@ -168,27 +168,38 @@ def _latest_full_year_ok(x: Extracted) -> bool:
     return bool(full) and full[0].passed
 
 
-_TOP10 = re.compile(r"(?is)top\s*(?:ten|10)\s+customers?\b.{0,160}?(?<![\d.,])"
-                    r"(\d{1,2}(?:\.\d{1,2})?|100(?:\.0+)?)(?!\d)\s*%")
+_WORDS = {"one": 1, "three": 3, "five": 5, "ten": 10}
+_TOPN = re.compile(r"(?is)top\s*(1|3|5|10|one|three|five|ten)\s+(customers?|clients?|buyers?|suppliers?|vendors?)"
+                   r"\b.{0,160}?(?<![\d.,])(\d{1,2}(?:\.\d{1,2})?|100(?:\.0+)?)(?!\d)\s*%")
+
+
+def top_shares(pages: list[str]) -> list[dict]:
+    """Shares of revenue (customers) and purchases (suppliers) from the top 1, 3, 5 and
+    10, as the RHP prints them (F5, data guide 9.1).
+
+    The first percentage after the phrase is the latest period in the RHP's tables.
+    A value is verified only when it is printed on at least two different pages (the
+    risk factors and the business section usually both state it).
+    """
+    seen: dict[tuple[str, float], list[int]] = {}
+    for i, text in enumerate(pages, 1):
+        for m in _TOPN.finditer(text):
+            n = _WORDS.get(m.group(1).lower(), None) or int(m.group(1))
+            who = "suppliers" if re.match(r"(?i)suppl|vendor", m.group(2)) else "customers"
+            where = seen.setdefault((f"biz.top{n}_{who}_pct", round(float(m.group(3)), 2)), [])
+            if i not in where:
+                where.append(i)
+    best: dict[str, tuple[float, list[int]]] = {}
+    for (field, value), where in seen.items():
+        if field not in best or (len(where), -where[0]) > (len(best[field][1]), -best[field][1][0]):
+            best[field] = (value, where)
+    return [{"field": f, "fiscal_year": "", "value": v, "unit": "%", "page": w[0],
+             "verified": len(w) >= 2, "method": "text_pattern"} for f, (v, w) in sorted(best.items())]
 
 
 def top_customers(pages: list[str]) -> dict | None:
-    """The share of revenue from the top 10 customers, as the RHP prints it.
-
-    Verified only when the same value is printed at least twice (the risk
-    factors and the business section usually both state it).
-    """
-    seen: dict[float, list[int]] = {}
-    for i, text in enumerate(pages, 1):
-        for m in _TOP10.finditer(text):
-            where = seen.setdefault(round(float(m.group(1)), 2), [])
-            if i not in where:                  # printed twice = on two different pages
-                where.append(i)
-    if not seen:
-        return None
-    value, where = max(seen.items(), key=lambda kv: (len(kv[1]), -kv[1][0]))
-    return {"field": "biz.top10_customers_pct", "fiscal_year": "", "value": value, "unit": "%",
-            "page": where[0], "verified": len(where) >= 2, "method": "text_pattern"}
+    """The top-10 customers' share alone (kept for callers that want one fact)."""
+    return next((f for f in top_shares(pages) if f["field"] == "biz.top10_customers_pct"), None)
 
 
 def facts_from(extracted: dict[str, Extracted]) -> list[dict]:

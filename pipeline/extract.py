@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from agent.extract import extract_financials, facts_from, top_customers
+from agent.extract import extract_financials, facts_from, top_shares
 from agent.rhp import load_pages
 from pipeline.base import Gate, StageContext
 from pipeline.common.db import upsert
@@ -33,7 +33,7 @@ def run(ctx: StageContext) -> dict:
         except Exception as e:
             ctx.log.failure(doc["ipo_id"], "extract", f"{type(e).__name__}: {e}")
             continue
-        found = facts_from(result) + [f for f in (top_customers(pages),) if f]
+        found = facts_from(result) + top_shares(pages)
         facts = [{"ipo_id": doc["ipo_id"], **f, "verified": int(f["verified"])} for f in found]
         ctx.conn.execute("DELETE FROM facts WHERE ipo_id = ? AND method IN ('text_table', "
                          "'text_pattern')", (doc["ipo_id"],))

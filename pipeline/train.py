@@ -21,6 +21,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
+from agent.scoring import CORE
 from pipeline.base import Gate, StageContext
 
 BANKER = ["f_banker_crash", "f_banker_low_history", "f_banker_median_ret"]
@@ -28,9 +29,15 @@ WATCHLIST = ["f_watchlist_hit", "f_watchlist_hop1"]
 RHP = ["f_cfo_pat", "f_cfo_neg_pat_pos", "f_recv_rev_gap", "f_profit_spike",
        "f_ebitda_headroom_min", "f_other_income_share", "f_rev_growth"]
 PARTIES = ["f_auditor_changed", "f_auditor_crash", "f_top10_customers"]
+# Data guide parameters added on 27 Oct 2026: market maker record (F13), customer and
+# supplier concentration (F5); the backtest decides whether they earn a place.
+PARTIES_V3 = PARTIES + ["f_mm_crash", "f_top5_customers", "f_top10_suppliers", "f_ofs_share",
+                         "f_debt_equity", "f_interest_cover", "f_ebitda_margin", "f_ronw",
+                         "f_recv_days_change"]
 CANDIDATES = {"v2-banker": BANKER, "v2-banker-watchlist": BANKER + WATCHLIST,
               "v2-banker-watchlist-rhp": BANKER + WATCHLIST + RHP,
-              "v2-full": BANKER + WATCHLIST + RHP + PARTIES}
+              "v2-full": BANKER + WATCHLIST + RHP + PARTIES,
+              "v3-full": BANKER + WATCHLIST + RHP + PARTIES_V3}
 FEATURES = BANKER          # the banker-only rule and v0 model use these
 TEST_SHARE = 0.3
 VALIDATION_SHARE = 0.2     # of the training rows, newest first
@@ -127,7 +134,21 @@ def evaluate(y: np.ndarray, p: np.ndarray, high_at: float) -> dict:
         "recall_at_high": float(high[pos].mean()) if pos.any() else None,
         "false_alarm_rate": float(high[neg].mean()) if neg.any() else None,
         "brier": float(brier_score_loss(y, np.clip(p, 0, 1))),
+        "reliability": reliability(y, p),
     }
+
+
+def reliability(y: np.ndarray, p: np.ndarray, bins: int = 5) -> list[dict]:
+    """Calibration: predicted against observed rate of adverse outcomes, in equal-count bins
+    of predicted probability (the data for a reliability chart, design: Evaluation targets)."""
+    order = np.argsort(p)
+    out = []
+    for part in np.array_split(order, bins):
+        if len(part):
+            out.append({"n": int(len(part)), "p_mean": round(float(p[part].mean()), 4),
+                        "observed": round(float(y[part].mean()), 4),
+                        "p_from": round(float(p[part].min()), 4), "p_to": round(float(p[part].max()), 4)})
+    return out
 
 
 def run(ctx: StageContext) -> dict:
@@ -161,6 +182,8 @@ def run(ctx: StageContext) -> dict:
         "baseline_banker_rule": evaluate(y_test, rule_score, RULE_HIGH_AT),
         "coverage_test": {f: float(np.mean([r.get(f) is not None for r in test]))
                           for f in features},
+        # Share of test IPOs the Scorer would rate INSUFFICIENT DATA (a core feature missing).
+        "abstention_rate": float(np.mean([any(r.get(f) is None for f in CORE) for r in test])),
     }
     names = [n for f in features for n in (f, f"{f}__missing")]
     scorer = {"version": version, "features": features, "columns": names,
