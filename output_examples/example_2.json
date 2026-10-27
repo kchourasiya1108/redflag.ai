@@ -196,5 +196,5 @@
   "log_file": "logs/trace-example-2.jsonl",
   "case_file": "output/example-2/case_file.json",
   "report": "output/example-2/report.md",
-  "execution_time_seconds": 1.46
+  "execution_time_seconds": 1.54
 }

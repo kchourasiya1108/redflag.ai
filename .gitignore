@@ -229,8 +229,8 @@ data/failures.csv
 data/memory.db
 data/backups/
 data/uploads/
-logs/
-output/
+logs/*
+output/*
 data/publish/
 data/gates/*.tmp
 
@@ -262,4 +262,10 @@ data/review/
 data/backtest/
 data/model/*
 !data/model/scorer.json
+# the example runs' files that output_examples/*.json point to
+!logs/trace-example-*.jsonl
+!logs/example-*/
+logs/example-*/*
+!logs/example-*/*.jsonl
+!output/example-*/
 # <<< submission <<<

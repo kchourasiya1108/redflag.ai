@@ -33,7 +33,7 @@ PURGE_PATHS=(
 # The files this script owns in commits.
 SUBMISSION_FILES=(
   .gitignore .dockerignore Dockerfile README.md run.py
-  input_examples output_examples scripts
+  input_examples output_examples scripts logs output
 )
 
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -77,12 +77,21 @@ data/review/
 data/backtest/
 data/model/*
 !data/model/scorer.json
+# the example runs' files that output_examples/*.json point to
+!logs/trace-example-*.jsonl
+!logs/example-*/
+logs/example-*/*
+!logs/example-*/*.jsonl
+!output/example-*/
 $end
 EOF
 )
   # Replace an earlier copy of the block, then append the current one.
   awk -v b="$begin" -v e="$end" '$0==b{skip=1} !skip{print} $0==e{skip=0}' .gitignore > .gitignore.tmp
-  git stripspace < .gitignore.tmp > .gitignore      # also drops trailing blank lines
+  # logs/ and output/ ignore whole folders, which no later rule can re-include;
+  # logs/* and output/* ignore their contents, so the example runs can be kept.
+  sed -e 's#^logs/$#logs/*#' -e 's#^output/$#output/*#' .gitignore.tmp \
+    | git stripspace > .gitignore                     # also drops trailing blank lines
   rm -f .gitignore.tmp
   printf '\n%s\n' "$block" >> .gitignore
   git config user.name "$AUTHOR_NAME"
@@ -174,6 +183,7 @@ step_check() {
   for f in run.py README.md requirements.txt Dockerfile .env.example \
            input_examples/example_1.json input_examples/example_2.json input_examples/example_3.json \
            output_examples/example_1.json output_examples/example_2.json output_examples/example_3.json \
+           logs/trace-example-1.jsonl output/example-1/report.md output/example-1/case_file.json \
            docs/evidence/markovian-conformance.txt docs/evidence/world-model-conformance.txt \
            data/sample/archive_sample.db data/model/scorer.json; do
     if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then echo "  tracked  $f"

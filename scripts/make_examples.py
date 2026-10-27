@@ -37,6 +37,18 @@ def _clear_run(run_id: str | None) -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+def _relative_run_files(run_id: str | None) -> None:
+    """The run's own files are committed too (the response points at them)."""
+    if not run_id:
+        return
+    files = [ROOT / "logs" / f"trace-{run_id}.jsonl"]
+    for folder in (ROOT / "logs" / run_id, ROOT / "output" / run_id):
+        files += [f for f in folder.glob("*") if f.suffix in (".json", ".jsonl", ".md")]
+    for f in files:
+        if f.is_file():
+            f.write_text(_relative(f.read_text()))
+
+
 def main() -> int:
     inputs = sorted((ROOT / "input_examples").glob("example_*.json"))
     if len(inputs) < 3:
@@ -60,6 +72,7 @@ def main() -> int:
         report = out.get("report")
         if isinstance(report, str) and (ROOT / report).is_file():
             (out_dir / f"{path.stem}.report.md").write_text(_relative((ROOT / report).read_text()))
+        _relative_run_files(out.get("run_id"))
         rating = (out.get("output") or {}).get("rating")
         print(f"{path.name}: HTTP {res.status_code} {out.get('status')} rating={rating}")
     return 1 if failed else 0

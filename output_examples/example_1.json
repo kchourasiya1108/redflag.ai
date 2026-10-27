@@ -223,5 +223,5 @@
   "log_file": "logs/trace-example-1.jsonl",
   "case_file": "output/example-1/case_file.json",
   "report": "output/example-1/report.md",
-  "execution_time_seconds": 1.64
+  "execution_time_seconds": 1.7
 }
