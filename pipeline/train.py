@@ -100,6 +100,39 @@ def fit(rows: list[dict], features: list[str]):
     return model, tf
 
 
+def validation_split(train: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(inner, validation): the newest training years as validation, never the test split;
+    inner rows are only those whose outcome was known before validation begins."""
+    cut = int(len(train) * (1 - VALIDATION_SHARE))
+    first_val = train[cut]["as_of"]
+    return [r for r in train[:cut] if r["known_on"] < first_val], train[cut:]
+
+
+def recalibrate(train: list[dict], features: list[str]) -> float:
+    """A base-rate shift `a` for the log-odds, fitted on the validation years.
+
+    Recent SME IPOs ended badly more often than the training years, so raw scores
+    under-predict. The inner model's scores on the validation years (which it did not
+    see) say by how much. Only the intercept moves: the ranking, and with shifted band
+    cut-offs the bands, stay as trained; the probabilities become honest odds. (A full
+    Platt fit flattened the scores on 27 Oct 2026 and put 83% of test IPOs in HIGH.)
+    """
+    inner, val = validation_split(train)
+    y = np.array([r["y"] for r in val])
+    if len({r["y"] for r in inner}) < 2 or len(set(y)) < 2:
+        return 0.0
+    model, tf = fit(inner, features)
+    z = model.decision_function(matrix(val, tf, features))
+    grid = np.linspace(-3, 3, 601)
+    loss = [-np.mean(y * np.log(1 / (1 + np.exp(-(z + g)))) + (1 - y) * np.log(1 - 1 / (1 + np.exp(-(z + g)))))
+            for g in grid]
+    return float(grid[int(np.argmin(loss))])
+
+
+def _shift(p: float, a: float) -> float:
+    return float(1 / (1 + np.exp(-(np.log(p / (1 - p)) + a))))
+
+
 def choose(train: list[dict]) -> tuple[str, dict]:
     """Pick the feature set by AUC on the newest training years (never the test split)."""
     cut = int(len(train) * (1 - VALIDATION_SHARE))
@@ -162,11 +195,18 @@ def run(ctx: StageContext) -> dict:
     version, selection = choose(train)
     features = CANDIDATES[version]
     model, tf = fit(train, features)
+    p_raw = model.predict_proba(matrix(test, tf, features))[:, 1]
+    a = recalibrate(train, features)
+    # Fold the shift into the intercept, so the Scorer and the per-feature explanation
+    # stay one linear model.
+    model.intercept_ = model.intercept_ + a
     p_test = model.predict_proba(matrix(test, tf, features))[:, 1]
     v0, tf0 = fit(train, BANKER)
     p_v0 = v0.predict_proba(matrix(test, tf0, BANKER))[:, 1]
     base_rate = float(y_train.mean())
-    cut = bands(base_rate)
+    raw_cut = bands(base_rate)
+    # The same IPOs land in each band as before the shift.
+    cut = {k: round(_shift(v, a), 4) for k, v in raw_cut.items()}
 
     rule_score = np.array([r.get("f_banker_crash") or base_rate for r in test])
     results = {
@@ -178,6 +218,9 @@ def run(ctx: StageContext) -> dict:
                   "test_from": test[0]["as_of"], "test_to": test[-1]["as_of"]},
         "base_rate_train": base_rate,
         "model": evaluate(y_test, p_test, cut["high_at"]),
+        "model_uncalibrated": evaluate(y_test, p_raw, raw_cut["high_at"]),
+        "calibration": {"log_odds_shift": round(a, 4), "fitted_on": "validation years",
+                        "bands_before_shift": raw_cut},
         "baseline_banker_model_v0": evaluate(y_test, p_v0, cut["high_at"]),
         "baseline_banker_rule": evaluate(y_test, rule_score, RULE_HIGH_AT),
         "coverage_test": {f: float(np.mean([r.get(f) is not None for r in test]))
@@ -191,7 +234,8 @@ def run(ctx: StageContext) -> dict:
               "intercept": round(float(model.intercept_[0]), 6),
               "fill": {f: tf[f]["fill"] for f in features},
               "transform": {f: {k: tf[f][k] for k in ("clip", "mean", "sd")} for f in features},
-              "bands": cut, "calibration": "logistic (Platt) on standardised features",
+              "bands": cut, "calibration": f"logistic regression, then a base-rate shift of "
+                                           f"{a:+.2f} log-odds fitted on the validation years",
               "trained_on": results["split"]}
     model_dir, backtest_dir = ctx.settings.data / "model", ctx.settings.data / "backtest"
     model_dir.mkdir(parents=True, exist_ok=True)

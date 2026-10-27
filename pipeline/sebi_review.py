@@ -98,6 +98,29 @@ def review_one(gateway, conn_factory, cache: Path, row: dict) -> tuple[dict, Rev
     return row, res.parsed, res.served_model
 
 
+def needs_model(conn, cache: Path, row: dict) -> str | None:
+    """None if the model should review this row; otherwise why a rule rejects it.
+
+    A person link is decidable only from something besides the name: one of their
+    companies in the order, or a distinctive (three-word or longer) name. A common
+    two-word name in an order about unrelated companies is rejected by rule, as the
+    model rejects it, without a model call.
+    """
+    if row["entity_role"] != "person" or not row["entity_id"]:
+        return None
+    if len(names.normalise(row["entity_name"]).split()) >= 3:
+        return None
+    path = cache / "sebi_text" / f"{row['order_id']}.txt"
+    text = f" {names.normalise(path.read_text(errors='ignore'))} " if path.exists() else ""
+    companies = [r[0] for r in conn.execute(
+        "SELECT DISTINCT i.company FROM ipo_people p JOIN ipos i USING (ipo_id) WHERE p.person_key = ?",
+        (row["entity_id"].rsplit(":", 1)[1],))]
+    if any(len(c := names.core(co)) >= 6 and f" {c} " in text for co in companies):
+        return None
+    return ("rule: a common two-word name, and the order mentions none of this person's "
+            "companies, so nothing ties it to the same person")
+
+
 def model_review(conn, conn_factory, gateway, cache: Path, *, workers: int = 3,
                  limit: int | None = None, log=print) -> dict:
     rows = [dict(r) for r in conn.execute(
@@ -105,7 +128,20 @@ def model_review(conn, conn_factory, gateway, cache: Path, *, workers: int = 3,
            FROM sebi_order_entity e JOIN sebi_orders o USING (order_id)
            WHERE e.reviewed = 0 AND e.reviewer IS NULL ORDER BY o.order_date""")]
     rows = rows[:limit] if limit else rows
-    done = {"confirmed": 0, "rejected": 0, "unresolved": 0, "failed": 0}
+    done = {"confirmed": 0, "rejected": 0, "unresolved": 0, "failed": 0, "rule_rejected": 0}
+    model_rows = []
+    for r in rows:
+        why = needs_model(conn, cache, r)
+        if why is None:
+            model_rows.append(r)
+            continue
+        conn.execute("UPDATE sebi_order_entity SET reviewed = -1, reviewer = 'rule', review_reason = ? "
+                     "WHERE order_id = ? AND entity_name = ? AND entity_role = ?",
+                     (why, r["order_id"], r["entity_name"], r["entity_role"]))
+        done["rule_rejected"] += 1
+    conn.commit()
+    log(f"{done['rule_rejected']} person links rejected by rule; {len(model_rows)} go to the model")
+    rows = model_rows
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(review_one, gateway, conn_factory, cache, r) for r in rows]
         for fut in as_completed(futures):

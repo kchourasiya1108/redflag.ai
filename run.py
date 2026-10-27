@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -50,8 +51,10 @@ def main(argv: list[str]) -> int:
             from pipeline import sebi_review
             gateway = gateway_from_env(cfg.data)
             gateway.budget = Budget(max_calls=2000, max_tokens=50_000_000)
+            from os import environ
+            workers = int(environ.get("SEBI_REVIEW_WORKERS", "3"))
             print(sebi_review.model_review(conn, lambda: connect(cfg.archive_db), gateway,
-                                           cfg.cache, limit=args.limit))
+                                           cfg.cache, limit=args.limit, workers=workers))
         else:
             parser.error("use: sebi-review export|import|model")
         return 0

@@ -191,8 +191,9 @@ def check(live_client, mock_client, *, log=print) -> bool:
     columns, rows, _ = live_client.query("SELECT 1", 1)
     log(f"ping: {rows}")
     ok = True
-    for source, table in [("RF_ARCHIVE", t) for t in TABLES if t != "prices"] + \
-                         [("RF_PRICES", "prices")]:
+    from pipeline.publish import PG_DATABASES
+    for source, table in [("RF_ARCHIVE", t) for t in PG_DATABASES["archive"]] + \
+                         [("RF_PRICES", t) for t in PG_DATABASES["prices"]]:
         sql = f"SELECT count(*) AS n FROM {source}.{table}"
         local = mock_client.query(sql, 1)[1][0][0]
         try:
