@@ -95,3 +95,14 @@ def test_a_failing_extract_model_falls_back_to_the_reasoning_role(tmp_path):
     gw.sample_mode = True                      # replays never fall back
     with pytest.raises(GatewayError):
         gw.generate("hi", route="extract", purpose="t")
+
+
+def test_a_cached_fallback_answer_is_reused_without_retrying_the_failing_model(tmp_path):
+    from agent.llm import Gateway
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "fast", "reason": "deep"})
+    calls = []
+    gw._is_cached = lambda prompt, system, schema, role, images=None: role == "reason"
+    gw._generate = lambda prompt, system=None, *, route="", **k: (calls.append(route), SimpleNamespace(served_model="deep"))[1]
+    assert gw.generate("hi", route="extract", purpose="t").served_model == "deep"
+    assert calls == ["reason"]                  # the failing model is not tried again

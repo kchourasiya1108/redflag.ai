@@ -63,7 +63,7 @@ export function Report({ result, cf, explain, trace }: {
           <div className="verdict">
             <div className="stack">
               <span style={{ alignSelf: "flex-start" }}><SeverityBadge level={o.rating} size="xl" /></span>
-              <div className="verdict-head">{RATING_TEXT[o.rating]?.headline}</div>
+              <div className="verdict-head">{headline(o)}</div>
               <p className="small muted" style={{ maxWidth: 520 }}>
                 A typical SME IPO has a {odds(bands.low_below)} chance of going badly: a sharp fall in its first six months,
                 a trading suspension, or SEBI action. <Link to="/how#track-record">How accurate is this?</Link>
@@ -104,6 +104,17 @@ export function Report({ result, cf, explain, trace }: {
       </div>
     </EvidenceProvider>
   );
+}
+
+/** The verdict line. A LOW score can still come with serious findings; say so rather
+ *  than "no major warning signs". The rating itself stays the backtested model's. */
+function headline(o: RunOutput): string {
+  const serious = o.reasons.filter((r) => r.severity === "HIGH").length;
+  if (o.rating === "LOW" && serious)
+    return `The overall risk score is low, but ${serious === 1 ? "one serious concern needs" : `${serious} serious concerns need`} checking before you bid.`;
+  if (o.rating === "LOW" && o.reasons.length)
+    return "Low overall risk, with a few points worth checking before you bid.";
+  return RATING_TEXT[o.rating]?.headline ?? "";
 }
 
 /** The facts an investor bids on: price, lot, dates and who runs the issue. */

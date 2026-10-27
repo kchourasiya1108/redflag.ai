@@ -187,6 +187,14 @@ class Gateway:
                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
                  purpose: str = "", max_tokens: int | None = None,
                  images: list[bytes] | None = None) -> GenResult:
+        fallback = FALLBACK_ROLE.get(route)
+        if fallback and fallback in self.routes and not self.sample_mode \
+                and not self._is_cached(prompt, system, schema, route, images) \
+                and self._is_cached(prompt, system, schema, fallback, images):
+            # This call failed on its own role before and was answered by the fallback:
+            # reuse that answer instead of waiting for the failing model again.
+            return self._generate(prompt, system, schema=schema, route=fallback, purpose=purpose,
+                                  max_tokens=max_tokens, images=images)
         try:
             return self._generate(prompt, system, schema=schema, route=route, purpose=purpose,
                                   max_tokens=max_tokens, images=images)
@@ -196,7 +204,6 @@ class Gateway:
             # The fast extract model can be down while the reasoning model answers
             # (NVIDIA 502s on 27 Oct 2026): retry that one call on the reasoning role,
             # live only, so a check completes instead of skipping sections.
-            fallback = FALLBACK_ROLE.get(route)
             if self.sample_mode or not fallback or fallback not in self.routes:
                 raise
             if self.on_call:
@@ -204,6 +211,14 @@ class Gateway:
                               "error": f"{route} failed, retrying on {fallback}: {str(e)[:120]}"})
             return self._generate(prompt, system, schema=schema, route=fallback, purpose=purpose,
                                   max_tokens=max_tokens, images=images)
+
+    def _is_cached(self, prompt: str, system: str | None, schema, role: str, images=None) -> bool:
+        """Whether a reply for this call on this role is in the disk cache."""
+        prefix = self.role_system.get(role)
+        sysm = (f"{prefix}\n{system}" if system else prefix) if prefix else system
+        model = self.vision_model if images else None
+        key = cache_key(self.routes.get(role, role), sysm, prompt, schema, images, model)
+        return (self.cache_dir / f"{key}.json").exists()
 
     def _generate(self, prompt: str, system: str | None = None, *,
                   schema: type[BaseModel] | None = None, route: str = "meterless/auto",
