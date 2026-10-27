@@ -43,6 +43,10 @@ class GatewayError(RuntimeError):
     pass
 
 
+# A role that fails falls back once to this role (live runs only).
+FALLBACK_ROLE = {"extract": "reason"}
+
+
 class ReplayMiss(GatewayError):
     """Sample mode has no recorded reply for this prompt."""
 
@@ -183,6 +187,28 @@ class Gateway:
                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
                  purpose: str = "", max_tokens: int | None = None,
                  images: list[bytes] | None = None) -> GenResult:
+        try:
+            return self._generate(prompt, system, schema=schema, route=route, purpose=purpose,
+                                  max_tokens=max_tokens, images=images)
+        except (ReplayMiss, BudgetExceeded):
+            raise
+        except GatewayError as e:
+            # The fast extract model can be down while the reasoning model answers
+            # (NVIDIA 502s on 27 Oct 2026): retry that one call on the reasoning role,
+            # live only, so a check completes instead of skipping sections.
+            fallback = FALLBACK_ROLE.get(route)
+            if self.sample_mode or not fallback or fallback not in self.routes:
+                raise
+            if self.on_call:
+                self.on_call({"action": "model.retry_or_fallback", "purpose": purpose,
+                              "error": f"{route} failed, retrying on {fallback}: {str(e)[:120]}"})
+            return self._generate(prompt, system, schema=schema, route=fallback, purpose=purpose,
+                                  max_tokens=max_tokens, images=images)
+
+    def _generate(self, prompt: str, system: str | None = None, *,
+                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
+                  purpose: str = "", max_tokens: int | None = None,
+                  images: list[bytes] | None = None) -> GenResult:
         # Reasoning models spend the token budget thinking before they answer,
         # so a role carries its own budget and an optional system prefix.
         if max_tokens is None:

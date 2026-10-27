@@ -74,3 +74,24 @@ def test_f8_reprices_listed_peers_on_the_bid_date():
     assert got["repriced"] == 1 and got["peers"][0]["pe"] == 30.0 and got["peers"][0]["pe_printed"] == 20.0
     assert got["peers"][1]["pe"] == 18.0                    # no NSE match: printed P/E kept
     assert got["peer_median_pe"] == 24.0 and abs(got["premium"] - 1.25) < 1e-9
+
+
+def test_a_failing_extract_model_falls_back_to_the_reasoning_role(tmp_path):
+    import pytest
+    from agent.llm import Gateway, GatewayError
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "fast", "reason": "deep"})
+    calls, events = [], []
+    gw.on_call = events.append
+
+    def fake(prompt, system=None, *, route="", **k):
+        calls.append(route)
+        if route == "extract":
+            raise GatewayError("HTTP 502 empty response")
+        return SimpleNamespace(text="ok", served_model="deep")
+    gw._generate = fake
+    assert gw.generate("hi", route="extract", purpose="t").served_model == "deep"
+    assert calls == ["extract", "reason"] and "retrying on reason" in events[0]["error"]
+    gw.sample_mode = True                      # replays never fall back
+    with pytest.raises(GatewayError):
+        gw.generate("hi", route="extract", purpose="t")
