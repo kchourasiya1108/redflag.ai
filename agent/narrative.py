@@ -304,6 +304,128 @@ def _is_issuer(own: list[str], name: str) -> bool:
     return bool(own) and own[0] in words and set(own) <= words | {own[0]}
 
 
+_PEER_HEAD = re.compile(r"(?i)comparison\s+(?:of\s+accounting\s+ratios?\s+)?with\s+(?:the\s+)?(?:listed\s+)?"
+                        r"(?:industry\s+)?peers?|peer\s+competitors|comparison\s+of\s+accounting\s+ratios?|"
+                        r"accounting\s+ratios?\s+with\s+(?:listed\s+)?(?:industry\s+)?peers")
+_PEER_COLS = (("revenue", r"revenue|total\s+income"), ("cmp", r"\bcmp\b|market\s+price|closing\s*price"),
+              ("fv", r"face\s*value"), ("eps", r"\beps\b|earnings\s+per\s+share"),
+              ("pe", r"p\s*/\s*e|\bpe\s+ratio"), ("ronw", r"ro\s*n\s*w|return\s+on\s+net"),
+              ("pnav", r"price\s*/\s*nav|p\s*/\s*b"), ("nav", r"\bnav\b|net\s+asset"))
+_PEER_PROSE = re.compile(r"(?is)peer[^.]{0,80}?\bi\.?\s*e\.?,?\s+([A-Z][\w&.,\- ]{2,80}?(?:Limited|Ltd\.?))"
+                         r"[^.]{0,30}?\bwhose\s+P\s*/?\s*E[^.]{0,60}?\bis\s+(\d+(?:\.\d+)?)")
+_CELL = re.compile(r"(?<![\w.])\(?-?\d[\d,]*(?:\.\d+)?\)?%?(?![\w])|\[[●•]\]\*?|\bNA\b|N\.A\.")
+
+
+def _cell(token: str) -> float | None:
+    t = token.strip("()%*").replace(",", "")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+_NOT_A_NAME = re.compile(r"(?i)\b(?:ebitda|pat\b|profit|margin|ro[ce]e?\b|roce|eps\b|book\s+value|revenue|"
+                         r"page\s+\d+|crore|lakh|million|standalone|consolidated|particulars|name\s+of|"
+                         r"financial\s+(?:information|year)|total|average|highest|lowest|ratio|nav\b|"
+                         r"face\s+value|cmp\b|net\s+worth|industry\s+composite|audited|our\s+company|"
+                         r"stand\s*-?\s*alone|thousands|mcap|sales|\b(?:january|february|march|april|may|june|"
+                         r"july|august|september|october|november|december)\b|\bfy\s*\d|\b20\d{2}\b|listed\s+peer)")
+
+
+def _peer_name(raw: str) -> str | None:
+    """A peer's name with serial numbers and markers removed, or None for a label that is
+    not a company (a metric row of the KPI table, a page footer, a 'Standalone' tag)."""
+    name = re.sub(r"(?i)^\W*(?:\d+[.)]?\s+)?(?:peer[\s\ufffe-]*group|listed\s+peers?|peers?)\W*", "", raw)
+    name = re.sub(r"[*^#@]+|\(\s*(?:standalone|consolidated)\s*\)|\(\d\)|\s+", " ", name).strip(" .,:-")
+    if (len(name) < 5 or len(name) > 90 or _NOT_A_NAME.search(name) or not re.search(r"[A-Za-z]{3}", name)
+            or re.search(r"\d+\.\d+", name)):          # numbers in a name: the row is misaligned
+        return None
+    return name
+
+
+def peer_table(pages: list[str], window: list[int], company: str = "") -> dict:
+    """The listed-peer comparison read in code, for F8: {"peers": [...], "issue_eps"}.
+
+    The header fixes each column's place ("CMP, Face Value, EPS, P/E, RoNW, NAV", with
+    "Basic Diluted" splitting EPS in two), and a row's P/E is the cell in that place.
+    When the header does not account for a row's cells, the P/E is found by its
+    arithmetic instead: the cell equal to another cell (the price) over a third (EPS).
+    """
+    own = _distinctive(company)
+    candidates = sorted(set(window) | set(range(max(1, window[0] - 2), min(window[0] + 8, len(pages) + 1)))) \
+        if window else []
+    for p in candidates:
+        text = pages[p - 1]
+        m = _PEER_PROSE.search(text)
+        if m and not _PEER_HEAD.search(text):
+            return {"peers": [{"name": m.group(1).strip(), "pe": float(m.group(2)), "page": p}],
+                    "source": "rhp text"}
+        head = _PEER_HEAD.search(text)
+        if not head or not re.search(r"(?i)p\s*/\s*e", text[head.start():]):
+            continue
+        body = text[head.end():] + "\n" + (pages[p] if p < len(pages) else "")
+        lines = [ln.strip() for ln in body.splitlines()]
+        first = next((i for i, ln in enumerate(lines) if len(_CELL.findall(ln)) >= 4
+                      and re.search(r"[A-Za-z]{3}", ln + " ".join(lines[max(0, i - 3):i]))), None)
+        if first is None:
+            continue
+        header = " ".join(lines[:first]).lower()
+        # A wrapped company name sits just above its numbers, after the last header cell.
+        last_head = max((i for i, ln in enumerate(lines[:first])
+                         if any(re.search(pat, ln.lower()) for _, pat in _PEER_COLS)
+                         or re.search(r"(?i)^\(?(?:₹|rs\.?|in\s|times|x\)|%)|basic|diluted|ratio", ln)),
+                        default=-1)
+        hits = sorted((m.start(), col) for col, pat in _PEER_COLS for m in [re.search(pat, header)] if m)
+        cols = []
+        for _, col in hits:
+            if col == "nav" and "pnav" in cols and cols[-1] == "pnav":
+                continue
+            cols.append(col)
+        if "eps" in cols and re.search(r"basic\s+(?:and\s+|&\s+)?diluted|basic\s+diluted", header) \
+                and not re.search(r"basic\s+(?:and|&)\s+diluted\s+eps|eps\s*\(basic\s+(?:and|&)\s+diluted", header):
+            cols.insert(cols.index("eps") + 1, "eps2")
+        peers, issue_eps, name, bad = [], None, "", False
+        for ln in lines[last_head + 1:]:
+            if re.match(r"(?i)\W*(notes?|source|\*|considering|\d+\.\s+[A-Z]|key\s+(?:performance|financial))", ln) \
+                    and (peers or re.match(r"(?i)\W*(?:\d+\.\s+[A-Z]|key\s+)", ln)):
+                break
+            cells = _CELL.findall(ln)
+            if len(cells) < 4:
+                if re.search(r"[A-Za-z]{3}", ln) and not re.search(r"(?i)^peer\s+group|^listed\s+peers|^industry\s+peers", ln):
+                    name = (name + " " + ln).strip() if name and not re.search(r"(?i)limited|ltd", name) else ln
+                continue
+            label = ln[:ln.find(cells[0])].strip() if cells[0] in ln else ""
+            if re.search(r"[A-Za-z]{3}", label):
+                name = (name + " " + label).strip() if name and not re.search(r"(?i)limited|ltd", name) else label
+            values = [_cell(c) for c in cells]
+            pe = None
+            if len(values) == len(cols) and "pe" in cols:
+                pe = values[cols.index("pe")]
+            else:
+                nums = [v for v in values if v]
+                pe = next((c for a in nums for b in nums for c in nums
+                           if len({a, b, c}) == 3 and b > 0 and c > 0 and abs(a / b - c) <= 0.03 * c), None)
+            raw = re.sub(r"\s+", " ", name).strip()
+            clean = _peer_name(raw)
+            if _is_issuer(own, raw):
+                if "eps" in cols and len(values) == len(cols):
+                    issue_eps = values[cols.index("eps2") if "eps2" in cols else cols.index("eps")]
+            elif clean is None:
+                if re.search(r"(?i)ebitda|\bpat\b|margin|ro[ce]e?\b|book\s+value", raw):
+                    break               # the KPI table that follows: the peer rows are over
+                if raw and not re.search(r"(?i)stand\s*-?\s*alone|consolidated|audited", raw):
+                    peers, bad = [], True   # a row we cannot name: do not trust this table
+                    break
+            elif pe and 0 < pe <= 1000:
+                peers.append({"name": clean, "pe": pe, "page": p})
+            name = ""
+        if peers and not bad:
+            return {"peers": peers, "issue_eps": issue_eps, "source": "rhp table"}
+        if bad:
+            return {}
+    return {}
+
+
 def peer_valuation(data: dict, company: str = "", issue_price: float | None = None) -> dict:
     """Issue P/E over the median P/E of the listed peers the RHP itself chose (F8).
 

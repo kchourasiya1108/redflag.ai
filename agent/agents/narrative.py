@@ -5,8 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from agent.agents.base import Agent, AgentResult, RunContext
 from agent.agents.planner import FORENSIC, LIGHT, STANDARD
-from agent.narrative import (reprice_peers, insider_discount, objects_summary, peer_valuation, printed_gross,
-                             read_section, rpt_share)
+from agent.narrative import (reprice_peers, insider_discount, objects_summary, peer_table, peer_valuation,
+                             printed_gross, read_section, rpt_share)
 from agent.specialists import (f4_insider_discount, f6_related_parties, f8_overvalued,
                                f9_use_of_money)
 
@@ -87,6 +87,13 @@ class NarrativeReader(Agent):
             ctx.case.add_not_checked("F9 use of money", obj.error or "the table of how the money will be used could not be read",
                                      agent=self.name)
         basis = results.get("basis")
+        if basis:
+            # The peer table read in code wins over the model's; the model's answer fills
+            # what the code did not find (the issuer's own P/E or EPS).
+            code = peer_table(pages, basis.pages, ctx.meta.get("company", ""))
+            if code.get("peers"):
+                basis.data = {**basis.data, "peers": code["peers"],
+                              "issue_eps": basis.data.get("issue_eps") or code.get("issue_eps")}
         if basis and basis.data.get("peers"):
             self._record(ctx, f8_overvalued(reprice_peers(peer_valuation(basis.data, ctx.meta.get("company", ""),
                                                                          ctx.meta.get("issue_price")),

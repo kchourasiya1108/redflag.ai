@@ -333,3 +333,41 @@ def test_a_windowed_read_covers_every_page_even_after_the_model_says_done():
     run = Markovian(ChunkConfig(chunk_size=8000, max_chunks=6, carryover_tokens=640), generator=gen).run(
         "read the table", mode="EXTRACT", reflect=False, windows=["p1", "p2", "p3"])
     assert seen == ["part 1 of 3", "part 2 of 3", "part 3 of 3"] and run.status == "completed"
+
+
+def test_the_peer_table_is_read_in_code():
+    from agent.narrative import peer_table
+    page = """5. Comparison of Accounting Ratio with Industry Peers:
+Name of the
+Company
+Current
+Market Price
+(₹)
+Face Value (₹) Basic EPS (₹) P/E (x) times RoNW(%) Net Asset
+Value per
+share (₹)
+Yash
+Highvoltage
+Limited
+NA 5 5.45 [•] 32.51% 19.03
+Peer Group
+Crompton
+Greaves Power
+and Industrial
+Solutions
+Limited
+732.70 2 9.33 78.53 47.29% 19.76
+Hitachi Energy
+India Limited
+11,970 2 38.64 309.78 13% 320.86
+Notes:
+a) The figures for our company are as certified by the Statutory Auditor."""
+    got = peer_table([page], [1], "Yash Highvoltage Limited")
+    assert got["issue_eps"] == 5.45
+    assert [(p["name"], p["pe"]) for p in got["peers"]] == [
+        ("Crompton Greaves Power and Industrial Solutions Limited", 78.53), ("Hitachi Energy India Limited", 309.78)]
+    prose = "There is only 1 peer competitor, i.e. Allied Digital Services Limited whose PE as on March 31, 2022 is 9.82"
+    assert peer_table([prose], [1], "Synoptics Technologies Limited")["peers"][0]["pe"] == 9.82
+    kpi = page.replace("Hitachi Energy\nIndia Limited", "EBITDA Margin (%)")
+    assert [p["name"] for p in peer_table([kpi], [1], "Yash Highvoltage Limited")["peers"]] == [
+        "Crompton Greaves Power and Industrial Solutions Limited"]
