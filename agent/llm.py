@@ -93,6 +93,7 @@ class Provider:
         self.base = base_url.rstrip("/")
         self.model_for = model_for
         self.chat_headers = chat_headers or {}
+        self.timeout_s = timeout_s
         h = {"Content-Type": "application/json", **(headers or {})}
         if token:
             h["Authorization"] = f"Bearer {token}"
@@ -153,7 +154,8 @@ def providers_from_env(env: dict[str, str] | None = None,
         out.append(Provider("meterless", normalise_base_url(env["METERLESS_BASE_URL"]),
                             meterless_token(env), headers={"meterless-app": "redflag"},
                             chat_headers={"meterless-scope": "user"},
-                            timeout_s=180.0, transport=transport))   # a model load can take minutes
+                            timeout_s=float(env.get("MODEL_CALL_TIMEOUT_S", CALL_TIMEOUT_S)),
+                            transport=transport))
     return out
 
 
@@ -217,7 +219,10 @@ class Gateway:
             # Models that failed this run go last; among the rest, the backup after Nemotron.
             chain.sort(key=lambda r: (self._role_failures.get(r, 0) > 0, r == "backup"))
         last: GatewayError | None = None
-        for i, role in enumerate(chain):
+        i = 0
+        while i < len(chain):
+            role = chain[i]
+            started = time.perf_counter()
             try:
                 # One attempt per model: each 502 from Nightshift takes up to a minute to
                 # come back, and the next model is more likely to answer than the same one.
@@ -228,9 +233,15 @@ class Gateway:
             except GatewayError as e:
                 last = e
                 self._role_failures[role] = self._role_failures.get(role, 0) + 1
-                if self.on_call and i + 1 < len(chain):
+                rest = chain[i + 1:]
+                if time.perf_counter() - started >= SLOW_FAIL_S and "backup" in rest:
+                    # Too slow for Nightshift's time limit: the other large model would be too.
+                    rest = ["backup"] + [r for r in rest if r != "backup"]
+                    chain = chain[:i + 1] + rest
+                if self.on_call and rest:
                     self.on_call({"action": "model.retry_or_fallback", "purpose": purpose,
-                                  "error": f"{role} failed, trying {chain[i + 1]}: {str(e)[:120]}"})
+                                  "error": f"{role} failed, trying {rest[0]}: {str(e)[:120]}"})
+                i += 1
         raise last
 
     def _is_cached(self, prompt: str, system: str | None, schema, role: str, images=None) -> bool:
@@ -339,7 +350,7 @@ class Gateway:
                     raise BudgetExceeded("the run's time limit leaves no room for a model call")
                 try:
                     out = provider.chat(messages, route, max_tokens, model,
-                                        timeout_s=min(180.0, left) if left else None)
+                                        timeout_s=min(provider.timeout_s, left) if left else None)
                     if not out["text"].strip():
                         raise GatewayError("empty reply (the token budget went on reasoning?)")
                 except (GatewayError, httpx.HTTPError, KeyError, ValueError) as e:
@@ -455,7 +466,11 @@ def routes_from_env(env: dict[str, str]) -> dict[str, str]:
 
 # Measured on Nightshift's Nemotron lanes (25 Oct): below ~4k tokens the
 # reasoning models return an empty or cut-off answer; /no_think shortens it.
-ROLE_MAX_TOKENS = {"extract": 8000, "reason": 8000, "backup": 8000}
+# Nightshift ends any request at 60 s ("Load failed", 27 Oct): at ~90 tokens/s a
+# reply must stay near 4.5k tokens to finish inside it.
+ROLE_MAX_TOKENS = {"extract": 4500, "reason": 4000, "backup": 4000}
+CALL_TIMEOUT_S = 65.0       # Nightshift gives up at 60 s; waiting longer only loses time
+SLOW_FAIL_S = 50.0          # a failure this slow hit that limit: the next try is the fast model
 ROLE_SYSTEM = {"extract": "/no_think", "backup": "/no_think"}
 
 

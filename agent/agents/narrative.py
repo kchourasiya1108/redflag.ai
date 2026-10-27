@@ -101,10 +101,13 @@ class NarrativeReader(Agent):
                 basis.data = {**basis.data, "peers": code["peers"],
                               "issue_eps": basis.data.get("issue_eps") or code.get("issue_eps")}
         if basis and basis.data.get("peers"):
-            self._record(ctx, f8_overvalued(reprice_peers(peer_valuation(basis.data, ctx.meta.get("company", ""),
-                                                                         ctx.meta.get("issue_price")),
-                                                          ctx.port, ctx.as_of)),
-                         basis, "F8 valuation vs peers", done)
+            valuation = peer_valuation(basis.data, ctx.meta.get("company", ""), ctx.meta.get("issue_price"))
+            if valuation.get("peers") and not valuation.get("issue_pe") and not ctx.meta.get("issue_price"):
+                ctx.case.add_not_checked("F8 valuation vs peers", "the peers are read, but the issue price "
+                                         "(price band) is not announced yet", agent=self.name)
+            else:
+                self._record(ctx, f8_overvalued(reprice_peers(valuation, ctx.port, ctx.as_of)),
+                             basis, "F8 valuation vs peers", done)
         elif basis:
             ctx.case.add_not_checked("F8 valuation vs peers", basis.error or "the comparison with listed peers could not be read",
                                      agent=self.name)
