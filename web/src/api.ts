@@ -1,5 +1,5 @@
 import type {
-  Backtest, CaseFile, Explain, IpoDetail, IpoRow, RunState, RunSummary, Status, TraceEvent, Upload,
+  Backtest, CaseFile, Explain, IpoDetail, IpoRow, LeadManager, RunState, RunSummary, Status, TraceEvent, Upload,
   UploadFields,
 } from "./types";
 
@@ -38,6 +38,7 @@ export const api = {
   case: (id: string) => get<CaseFile>(`/api/runs/${id}/case`),
   explain: (id: string) => get<Explain>(`/api/runs/${id}/explain`),
   trace: (id: string) => get<TraceEvent[]>(`/api/runs/${id}/trace`),
+  leadManager: (id: string) => get<LeadManager>(`/api/runs/${id}/lead-manager`),
   start: (ipo_id: string, sample_mode: boolean, auto = false) =>
     get<{ run_id: string }>("/api/runs", {
       method: "POST",

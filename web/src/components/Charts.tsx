@@ -1,6 +1,6 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import type { CaseFile, Explain, TraceEvent } from "../types";
-import { FEATURE_NAMES, num, odds, pct } from "../lib";
+import { FEATURE_NAMES, crore, num, odds, pct } from "../lib";
 
 // -- hover tooltip ------------------------------------------------------------
 
@@ -39,9 +39,9 @@ export function ProbabilityScale({ p, bands }: { p: number | null; bands: { low_
         {ticks.map((t) => <span key={t} style={{ left: at(t) }}>{Math.round(t * 100)}%</span>)}
       </div>
       <div className="bands">
-        <span>LOW &lt; {pct(bands.low_below)}</span>
-        <span>ELEVATED</span>
-        <span>HIGH ≥ {pct(bands.high_at)}</span>
+        <span>Low risk</span>
+        <span>Elevated</span>
+        <span>High risk</span>
       </div>
     </div>
   );
@@ -136,7 +136,7 @@ export function CashProfitChart({ years }: { years: { label: string; pat: number
         {years.map((y) => {
           const a = bar(y.pat), b = bar(y.cfo);
           return (
-            <div className="grp" key={y.label} {...bind(<><b>{y.label}</b><br />Profit after tax: {y.pat === null ? "–" : `₹${num(y.pat)} cr`}<br />Cash from operations: {y.cfo === null ? "–" : `₹${num(y.cfo)} cr`}</>)}>
+            <div className="grp" key={y.label} {...bind(<><b>{y.label}</b><br />Profit after tax: {y.pat === null ? "–" : crore(y.pat)}<br />Cash from operations: {y.cfo === null ? "–" : crore(y.cfo)}</>)}>
               <div className="pair" style={{ height: H }}>
                 {a && <div className={`b s1${y.pat! < 0 ? " neg" : ""}`} style={{ top: a.top, height: a.h }} />}
                 {b && <div className={`b s2${y.cfo! < 0 ? " neg" : ""}`} style={{ top: b.top, height: b.h }} />}
@@ -275,6 +275,167 @@ export function MetricBars({ rows, max = 1, format = (v: number) => v.toFixed(3)
         </div>
       ))}
       {reference && <div className="small faint">Vertical line: {reference.label}</div>}
+      {node}
+    </div>
+  );
+}
+
+// -- one measure over the years (small multiples share this) ------------------
+
+/** Columns from a zero line; only the latest year is labelled, the rest are on hover. */
+export function ColumnBars({ rows, unit = "₹ cr", height = 120 }: {
+  rows: { label: string; value: number | null }[]; unit?: string; height?: number;
+}) {
+  const { bind, node } = useTooltip();
+  const vals = rows.map((r) => r.value).filter((v): v is number => v !== null);
+  if (!vals.length) return null;
+  const max = Math.max(0, ...vals), min = Math.min(0, ...vals), span = max - min || 1;
+  const y0 = (max / span) * height;
+  const last = rows.length - 1;
+  const fmt = (v: number) => (unit === "₹ cr" ? crore(v) : `${num(v)}${unit}`);
+  return (
+    <div className="col-chart" style={{ height: height + 40 }}>
+      <div className="zero" style={{ top: y0 + 18 }} />
+      {rows.map((r, i) => {
+        const h = r.value === null ? 0 : Math.max(2, (Math.abs(r.value) / span) * height);
+        const top = r.value === null ? y0 : r.value >= 0 ? y0 - h : y0;
+        return (
+          <div className="col" key={r.label} {...bind(<><b>{r.label}</b><br />{r.value === null ? "Not read" : fmt(r.value)}</>)}>
+            <div className="plot" style={{ height }}>
+              {i === last && r.value !== null && <span className="v" style={{ top: r.value >= 0 ? top - 18 : top + h + 2 }}>{fmt(r.value)}</span>}
+              {r.value !== null && <div className={`b${r.value < 0 ? " neg" : ""}`} style={{ top, height: h }} />}
+            </div>
+            <div className="x">{r.label}</div>
+          </div>
+        );
+      })}
+      {node}
+    </div>
+  );
+}
+
+// -- top customers and suppliers (F5) -------------------------------------------
+
+export function ConcentrationChart({ value }: { value: Record<string, number | null> }) {
+  const { bind, node } = useTooltip();
+  const tiers = [1, 3, 5, 10].filter((n) => value[`top${n}_customers_pct`] != null || value[`top${n}_suppliers_pct`] != null);
+  if (!tiers.length) return null;
+  const hasS = tiers.some((n) => value[`top${n}_suppliers_pct`] != null);
+  const bar = (v: number | null | undefined, cls: string) =>
+    v == null ? <div className="pbar"><span className="faint tiny">not given</span></div>
+      : <div className="pbar"><div className={`f ${cls}`} style={{ width: `${Math.min(100, v)}%` }} /><span className="v">{num(v, 0)}%</span></div>;
+  return (
+    <div className="stack-sm">
+      <div className="legend">
+        <span><i className="sw" style={{ background: "var(--series-1)" }} />Share of sales from top customers</span>
+        {hasS && <span><i className="sw" style={{ background: "var(--series-2)" }} />Share of purchases from top suppliers</span>}
+      </div>
+      <div className="pairs">
+        {tiers.map((n) => {
+          const c = value[`top${n}_customers_pct`], s = value[`top${n}_suppliers_pct`];
+          return (
+            <div className="pair-row" key={n} {...bind(<><b>Top {n === 1 ? "customer / supplier" : `${n}`}</b><br />
+              Customers: {c == null ? "not given" : `${num(c, 1)}% of sales`}<br />
+              {hasS && <>Suppliers: {s == null ? "not given" : `${num(s, 1)}% of purchases`}</>}</>)}>
+              <span className="lab">{n === 1 ? "Largest" : `Top ${n}`}</span>
+              <div className="stack-xs">{bar(c, "s1")}{hasS && bar(s, "s2")}</div>
+            </div>
+          );
+        })}
+      </div>
+      {node}
+    </div>
+  );
+}
+
+// -- issue price against listed peers (F8) -----------------------------------------
+
+export function PeerPeChart({ value }: { value: { issue_pe?: number | null; peer_median_pe?: number | null; peers?: { name: string; pe: number | null }[] } }) {
+  const { bind, node } = useTooltip();
+  const peers = (value.peers ?? []).filter((p) => p.pe != null && p.pe > 0);
+  if (value.issue_pe == null || !peers.length) return null;
+  const rows = [{ name: "This IPO", pe: value.issue_pe, me: true }, ...peers.map((p) => ({ name: p.name, pe: p.pe as number, me: false }))];
+  const max = Math.max(...rows.map((r) => r.pe)) * 1.1;
+  const med = value.peer_median_pe;
+  return (
+    <div className="stack-sm">
+      <div className="small muted">Price-to-earnings: how many years of current profit the price pays for. Higher means more expensive.</div>
+      <div className="bars">
+        {rows.map((r) => (
+          <div className="bar-row compact" key={r.name} {...bind(<><b>{r.name}</b><br />P/E {num(r.pe, 1)}{med && !r.me ? "" : med ? <><br />{num(r.pe / med, 1)}× the peers' median</> : null}</>)}>
+            <span className="lab" style={r.me ? { color: "var(--text)", fontWeight: 600 } : undefined}>{r.name}</span>
+            <div className="bar-track">
+              {med != null && <div className="axis ref" style={{ left: `${(med / max) * 100}%` }} />}
+              <div className={`fill ${r.me ? "plain" : "muted"}`} style={{ width: `${(r.pe / max) * 100}%` }} />
+            </div>
+            <span className="val">{num(r.pe, 1)}</span>
+          </div>
+        ))}
+      </div>
+      {med != null && <div className="small faint">Dashed line: the peers' median P/E ({num(med, 1)}).</div>}
+      {node}
+    </div>
+  );
+}
+
+// -- the lead manager's earlier IPOs (F10) ----------------------------------------
+
+export function TrackRecordChart({ ipos }: { ipos: { company: string; listing_date: string; ret_6m: number | null; adverse: number }[] }) {
+  const { bind, node } = useTooltip();
+  const rows = ipos.filter((i) => i.ret_6m !== null);
+  if (!rows.length) return null;
+  const H = 150;
+  const max = Math.max(0.1, ...rows.map((r) => r.ret_6m!)), min = Math.min(-0.1, ...rows.map((r) => r.ret_6m!));
+  const span = max - min, y0 = (max / span) * H;
+  return (
+    <div className="stack-sm">
+      <div className="legend">
+        <span><i className="sw" style={{ background: "var(--raise)" }} />Went badly</span>
+        <span><i className="sw" style={{ background: "var(--line-strong)" }} />Did not</span>
+        <span className="faint">Each bar is one earlier IPO: its price change six months after listing</span>
+      </div>
+      <div className="tr-chart" style={{ height: H }}>
+        <div className="zero" style={{ top: y0 }}><span>0%</span></div>
+        {rows.map((r, i) => {
+          const h = Math.max(2, (Math.abs(r.ret_6m!) / span) * H);
+          return (
+            <div className="slot" key={i} {...bind(<><b>{r.company}</b><br />Listed {r.listing_date}<br />
+              {r.ret_6m! >= 0 ? "Up" : "Down"} {pct(Math.abs(r.ret_6m!), 0)} after six months{r.adverse ? <><br />Counted as going badly</> : null}</>)}>
+              <div className={`b${r.ret_6m! < 0 ? " neg" : ""}${r.adverse ? " bad" : ""}`} style={{ top: r.ret_6m! >= 0 ? y0 - h : y0, height: h }} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="between tiny faint"><span>{rows[0].listing_date.slice(0, 7)}</span><span>{rows[rows.length - 1].listing_date.slice(0, 7)}</span></div>
+      {node}
+    </div>
+  );
+}
+
+// -- did the odds hold up? (backtest) ---------------------------------------------
+
+export function ReliabilityChart({ bins }: { bins: { n: number; p_mean: number; observed: number; p_from: number; p_to: number }[] }) {
+  const { bind, node } = useTooltip();
+  const H = 160, max = Math.max(0.5, ...bins.flatMap((b) => [b.p_mean, b.observed])) * 1.1;
+  return (
+    <div className="stack-sm">
+      <div className="legend">
+        <span><i className="sw" style={{ background: "var(--series-1)" }} />Chance we gave</span>
+        <span><i className="sw" style={{ background: "var(--series-2)" }} />Share that actually went badly</span>
+      </div>
+      <div className="cp-chart" style={{ height: H + 40 }}>
+        <div className="zero" style={{ top: H }} />
+        {bins.map((b, i) => (
+          <div className="grp" key={i} {...bind(<><b>{b.n} IPOs we gave {pct(b.p_from, 0)}–{pct(b.p_to, 0)}</b><br />
+            Average chance we gave: {pct(b.p_mean, 0)}<br />Actually went badly: {pct(b.observed, 0)}</>)}>
+            <div className="pair" style={{ height: H }}>
+              <div className="b s1" style={{ top: H - (b.p_mean / max) * H, height: (b.p_mean / max) * H }} />
+              <div className="b s2" style={{ top: H - (b.observed / max) * H, height: (b.observed / max) * H }} />
+            </div>
+            <div className="x">{pct(b.p_from, 0)}–{pct(b.p_to, 0)}</div>
+          </div>
+        ))}
+      </div>
       {node}
     </div>
   );

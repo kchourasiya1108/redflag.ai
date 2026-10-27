@@ -4,12 +4,14 @@ import {
   Scale, ShieldAlert, Sparkles, XCircle,
 } from "lucide-react";
 import { api } from "../api";
-import { CashProfitChart, Contributions, OddsGrid } from "../components/Charts";
+import {
+  CashProfitChart, ColumnBars, ConcentrationChart, Contributions, OddsGrid, PeerPeChart, ProbabilityScale, TrackRecordChart,
+} from "../components/Charts";
 import { EvidenceChip, EvidenceProvider } from "../components/Evidence";
 import { Card, Empty, ErrorBox, SeverityBadge, Stat } from "../components/ui";
 import type { CaseFile, Explain, Fact, Reason, RunOutput, RunResult, SkepticNote, TraceEvent } from "../types";
 import {
-  CONCERN_TEXT, FEATURE_NAMES, FIELD_NAMES, FLAGS, Link, RATING_TEXT, STATEMENTS, cx, date, navigate, notCheckedText, num,
+  CONCERN_TEXT, FEATURE_NAMES, crore, FIELD_NAMES, FLAGS, Link, RATING_TEXT, STATEMENTS, cx, date, navigate, notCheckedText, num,
   odds, pct, plainText, rupees, sentence, useAsync,
 } from "../lib";
 import { titleCase } from "./Home";
@@ -75,11 +77,18 @@ export function Report({ result, cf, explain, trace }: {
               <OddsGrid p={o.p_adverse} rating={o.rating} />
             </div>
           </div>
+          {o.p_adverse !== null && (
+            <div className="stack-sm" style={{ marginTop: 18 }}>
+              <div className="eyebrow">Where this IPO sits</div>
+              <ProbabilityScale p={o.p_adverse} bands={bands} />
+            </div>
+          )}
         </Card>
 
         <div className="report-grid">
           <div className="stack">
             <SummaryCard output={o} dismissed={dismissed.length} cleared={cleared.length} />
+            <CheckTiles output={o} fine={cleared.length + dismissed.length} onOpen={() => setTab("concerns")} />
             <div className="tabs" role="tablist">
               {tabs.map((t) => (
                 <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
@@ -87,7 +96,7 @@ export function Report({ result, cf, explain, trace }: {
                 </button>
               ))}
             </div>
-            {tab === "concerns" && <Concerns output={o} dismissed={dismissed} explain={explain} />}
+            {tab === "concerns" && <Concerns output={o} dismissed={dismissed} explain={explain} cf={cf} runId={result.run_id} />}
             {tab === "financials" && (cf ? <Financials cf={cf} /> : <Empty title="No financials for this check" />)}
             {tab === "score" && (explain ? (
               <Card title="What moved the rating">
@@ -192,12 +201,38 @@ function SummaryCard({ output: o, dismissed, cleared }: { output: RunOutput; dis
   );
 }
 
+/** The checks at a glance: how many came out serious, moderate, fine or unchecked. */
+function CheckTiles({ output: o, fine, onOpen }: { output: RunOutput; fine: number; onOpen: () => void }) {
+  const tiles = [
+    { cls: "hi", n: o.reasons.filter((r) => r.severity === "HIGH").length, k: "Serious concerns", ic: <ShieldAlert size={13} /> },
+    { cls: "el", n: o.reasons.filter((r) => r.severity !== "HIGH").length, k: "Moderate concerns", ic: <Info size={13} /> },
+    { cls: "ok", n: fine, k: "Checks looked fine", ic: <CheckCircle2 size={13} /> },
+    { cls: "off", n: o.not_checked.length, k: "Couldn't check", ic: <CircleSlash size={13} /> },
+  ];
+  return (
+    <div className="tiles" aria-label="Checks at a glance">
+      {tiles.map((t) => (
+        <button type="button" className={`tile ${t.n ? t.cls : "off"}`} key={t.k} onClick={onOpen}>
+          <span className="n">{t.n}</span><span className="k">{t.ic}{t.k}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ROLE_WORDS: Record<string, string> = {
+  banker: "lead manager", market_maker: "market maker", auditor: "auditor", registrar: "registrar",
+  promoter: "promoter", director: "director",
+};
+/** "Shreni Shares Limited (market_maker)" -> "(market maker)" in questions recorded before the wording fix. */
+const plainRoles = (q: string) => q.replace(/\((banker|market_maker|auditor|registrar|promoter|director)\)/g, (_, r) => `(${ROLE_WORDS[r]})`);
+
 /** "Linked to a SEBI order" -> "linked to a SEBI order": only the first letter. */
 const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
 function Questions({ output: o }: { output: RunOutput }) {
   const qs = useMemo(() => {
-    const out = [...o.questions];
+    const out = o.questions.map(plainRoles);
     for (const r of o.reasons) {
       const ask = FLAGS[r.flag]?.ask;
       if (ask && !out.includes(ask)) out.push(ask);
@@ -214,8 +249,11 @@ function Questions({ output: o }: { output: RunOutput }) {
 
 // -- concerns -----------------------------------------------------------------
 
-function Concerns({ output: o, dismissed, explain }: { output: RunOutput; dismissed: SkepticNote[]; explain: Explain | null }) {
+function Concerns({ output: o, dismissed, explain, cf, runId }: {
+  output: RunOutput; dismissed: SkepticNote[]; explain: Explain | null; cf: CaseFile | null; runId: string;
+}) {
   const note = (flag: string) => o.skeptic_notes.find((n) => n.flag === flag);
+  const value = (flag: string) => cf?.flags.find((f) => f.id === flag)?.value as Record<string, unknown> | undefined;
   const dismissedIds = new Set(dismissed.map((d) => d.flag));
   const cleared = o.cleared_checks.filter((c) => !dismissedIds.has(c.flag));
   const fine = [
@@ -232,7 +270,8 @@ function Concerns({ output: o, dismissed, explain }: { output: RunOutput; dismis
         <div className="card"><Empty icon={<CheckCircle2 color="var(--low)" />} title="No concerns">Every check we could run either passed or was explained by the prospectus.</Empty></div>
       )}
       {o.reasons.length === 0 && o.rating !== "LOW" && explain && <RiskDrivers explain={explain} />}
-      {o.reasons.map((r) => <ConcernCard key={r.flag} reason={r} note={note(r.flag)} />)}
+      {o.reasons.map((r) => <ConcernCard key={r.flag} reason={r} note={note(r.flag)} value={value(r.flag)} />)}
+      <LeadManagerCard runId={runId} />
 
       {fine.length > 0 && (
         <details className="fold">
@@ -324,7 +363,7 @@ const RULING: Record<string, { label: string; text: string }> = {
   corroboration: { label: "Held at moderate", text: "Nothing else in the check points the same way, so we do not rate it serious on its own." },
 };
 
-function ConcernCard({ reason, note, explained }: { reason: Reason; note?: SkepticNote; explained?: boolean }) {
+function ConcernCard({ reason, note, explained, value }: { reason: Reason; note?: SkepticNote; explained?: boolean; value?: Record<string, unknown> }) {
   const meta = FLAGS[reason.flag];
   const ruling = note && (RULING[note.ruling] ?? { label: sentence(note.ruling).replace(/\.$/, ""), text: "" });
   return (
@@ -337,6 +376,8 @@ function ConcernCard({ reason, note, explained }: { reason: Reason; note?: Skept
       </div>
       <div className="body">
         {reason.text && <p className="found">{sentence(reason.text)}</p>}
+        {value && reason.flag === "F5" && <ConcentrationChart value={value as Record<string, number | null>} />}
+        {value && reason.flag === "F8" && <PeerPeChart value={value} />}
         {meta?.why && !explained && <p className="why"><b>Why it matters:</b> {meta.why}</p>}
         <Sources refs={reason.evidence} highlight={reason.text} />
       </div>
@@ -350,6 +391,32 @@ function ConcernCard({ reason, note, explained }: { reason: Reason; note?: Skept
         <div className="counter"><div><span className="who"><ShieldAlert size={14} /> Note:</span> being named in an order is not a finding against this company.</div></div>
       )}
     </article>
+  );
+}
+
+/** How the lead manager's earlier SME IPOs did, as known on the bid date. */
+function LeadManagerCard({ runId }: { runId: string }) {
+  const { data } = useAsync(() => api.leadManager(runId), [runId]);
+  if (!data?.banker) return null;
+  const known = data.ipos.filter((i) => i.ret_6m !== null);
+  const bad = data.ipos.filter((i) => i.adverse).length;
+  const share = data.ipos.length ? bad / data.ipos.length : null;
+  const sorted = known.map((i) => i.ret_6m!).sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+  return (
+    <Card title="The lead manager's track record" hint={titleCase(data.banker)}>
+      {!data.ipos.length ? <p className="small muted">No earlier SME IPO by this lead manager had a six-month result before this bid, so there is no record to judge.</p> : (
+        <div className="stack">
+          <div className="grid-3">
+            <Stat label="Earlier SME IPOs" value={String(data.ipos.length)} sub={data.ipos.length < 5 ? "a thin record" : "with a six-month result"} />
+            <Stat label="Went badly" value={share === null ? "–" : pct(share, 0)}
+              sub={data.base_rate == null ? undefined : `against ${pct(data.base_rate, 0)} of all SME IPOs`} />
+            <Stat label="Typical change after 6 months" value={median === null ? "–" : `${median >= 0 ? "+" : "−"}${pct(Math.abs(median), 0)}`} sub="the middle IPO of the lot" />
+          </div>
+          <TrackRecordChart ipos={data.ipos} />
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -380,13 +447,20 @@ function AtAGlance({ cf }: { cf: CaseFile }) {
     <Card title="At a glance" hint={`${last.label}, the latest full year, in ₹ crore`}>
       <div className="stack">
         <div className="glance">
-          <Stat label="Sales" value={last.rev === null ? "–" : `₹${num(last.rev)} cr`}
+          <Stat label="Sales" value={last.rev === null ? "–" : crore(last.rev)}
             sub={growth === null ? undefined : `${growth >= 0 ? "up" : "down"} ${pct(Math.abs(growth), 0)} on ${prev.label}`} />
-          <Stat label="Profit after tax" value={last.pat === null ? "–" : `₹${num(last.pat)} cr`}
+          <Stat label="Profit after tax" value={last.pat === null ? "–" : crore(last.pat)}
             sub={margin === null ? undefined : `${pct(margin, 1)} of sales`} />
-          <Stat label="Cash from operations" value={last.cfo === null ? "–" : `₹${num(last.cfo)} cr`}
+          <Stat label="Cash from operations" value={last.cfo === null ? "–" : crore(last.cfo)}
             sub={cashRatio === null ? "not read for this year" : cashRatio < 0 ? "cash went out while profit was reported" : `₹${num(cashRatio, 2)} of cash per ₹1 of profit`} />
         </div>
+        {series.length > 1 && (
+          <div className="grid-2">
+            <div><div className="mini-head">Sales</div><ColumnBars rows={series.map((s) => ({ label: s.label, value: s.rev }))} /></div>
+            <div><div className="mini-head">Profit after tax</div><ColumnBars rows={series.map((s) => ({ label: s.label, value: s.pat }))} /></div>
+          </div>
+        )}
+        <Ratios cf={cf} fy={last.label} />
         {hasCash && series.length > 1 && (
           <div className="stack-sm">
             <div className="small muted">Healthy businesses usually bring in roughly as much cash as the profit they report. A big, lasting gap is worth asking about.</div>
@@ -395,6 +469,25 @@ function AtAGlance({ cf }: { cf: CaseFile }) {
         )}
       </div>
     </Card>
+  );
+}
+
+/** Four ratios an investor reads first, from the latest year's restated figures. */
+function Ratios({ cf, fy }: { cf: CaseFile; fy: string }) {
+  const v = (f: string) => pick(cf, f, fy)?.value ?? null;
+  const equity = v("bs.equity") ?? (v("bs.share_capital") !== null && v("bs.reserves") !== null ? v("bs.share_capital")! + v("bs.reserves")! : null);
+  const debt = (v("bs.lt_borrowings") ?? 0) + (v("bs.st_borrowings") ?? 0);
+  const fin = v("pl.finance_cost"), pbt = v("pl.pbt"), pat = v("pl.pat"), rev = v("pl.revenue"), recv = v("bs.receivables");
+  const tiles: [string, string, string][] = [];
+  if (equity && equity > 0) tiles.push(["Debt to equity", `${num(debt / equity, 2)}×`, debt / equity > 1 ? "borrows more than its own capital" : "borrowing below its own capital"]);
+  if (fin && fin > 0 && pbt !== null) tiles.push(["Interest cover", `${num((pbt + fin) / fin, 1)}×`, (pbt + fin) / fin < 2 ? "thin: profit barely covers interest" : "profit covers interest comfortably"]);
+  if (equity && equity > 0 && pat !== null) tiles.push(["Return on net worth", pct(pat / equity, 0), "profit for each ₹100 of capital"]);
+  if (rev && recv !== null) tiles.push(["Days to collect", `${Math.round((recv / rev) * 365)} days`, "how long customers take to pay"]);
+  if (!tiles.length) return null;
+  return (
+    <div className="ratio-grid">
+      {tiles.map(([k, val, sub]) => <Stat key={k} label={k} value={val} sub={sub} />)}
+    </div>
   );
 }
 
@@ -413,7 +506,9 @@ function Financials({ cf }: { cf: CaseFile }) {
     for (const g of Object.values(out)) g.years.sort((a, b) => (a.startsWith("S") === b.startsWith("S") ? b.localeCompare(a) : a.startsWith("S") ? -1 : 1));
     return out;
   }, [cf]);
-  const undated = cf.facts.filter((f) => !f.fy);
+  const undated = cf.facts.filter((f) => !f.fy && !f.field.startsWith("biz.top"));
+  const concentration = Object.fromEntries(cf.facts.filter((f) => !f.fy && f.field.startsWith("biz.top"))
+    .map((f) => [f.field.slice(4), f.value]));
   if (!cf.facts.length) {
     return (
       <div className="card"><Empty title="We didn't read the financial statements for this IPO">
@@ -424,11 +519,16 @@ function Financials({ cf }: { cf: CaseFile }) {
   return (
     <div className="stack">
       <AtAGlance cf={cf} />
+      {Object.keys(concentration).length > 0 && (
+        <Card title="Top customers and suppliers" hint="From the business section of the prospectus">
+          <ConcentrationChart value={concentration} />
+        </Card>
+      )}
       {undated.length > 0 && (
         <Card title="Other facts from the prospectus">
           {undated.map((f) => (
             <div className="between small" key={f.field} style={{ padding: "4px 0" }}>
-              <span>{f.field === "biz.top10_customers_pct" ? "Top 10 customers' share of sales" : f.field}</span>
+              <span>{FIELD_NAMES[f.field] ?? f.field}</span>
               <span className="row">
                 <span className={cx("mono", !f.verified && "faint")}>{num(f.value)}{f.unit === "%" ? "%" : ` ${f.unit}`}</span>
                 {!f.verified && <span className="pill" title="Printed only once in the prospectus">not cross-checked</span>}

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { FileSearch, Gavel, Scale, Target } from "lucide-react";
 import { api } from "../api";
+import { ReliabilityChart } from "../components/Charts";
 import { Card, Stat } from "../components/ui";
 import type { Metrics } from "../types";
 import { FLAGS, pct, useAsync } from "../lib";
@@ -79,6 +80,14 @@ function TrackRecord() {
         <Stat label="Bad IPOs flagged in advance" value={pct(m.recall_at_high, 0)} sub={`${Math.round(m.recall_at_high * m.adverse)} of ${m.adverse}`} />
         <Stat label="False alarms" value={pct(m.false_alarm_rate, 0)} sub="of IPOs that did fine were rated High risk" />
       </div>
+      {m.reliability && m.reliability.length > 1 && (
+        <Card title="Did the chances hold up?" hint="Test IPOs in five equal groups, from the lowest chance we gave to the highest">
+          <div className="stack-sm">
+            <ReliabilityChart bins={m.reliability} />
+            <p className="small muted">When the two bars in a group are close, the chance we gave was about right. Riskier groups did go badly more often.</p>
+          </div>
+        </Card>
+      )}
       <Card>
         <p className="small muted">
           A High risk rating means roughly {rates.base ? (rates.highHit / rates.base).toFixed(1) : "–"}× the usual chance of a bad outcome, not a certainty.

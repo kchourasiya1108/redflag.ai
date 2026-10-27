@@ -258,6 +258,9 @@ export const FEATURE_NAMES: Record<string, string> = {
   f_rev_growth: "Sales growth",
 };
 
+/** ₹ crore with the sign before the symbol: −₹20.01 cr. */
+export const crore = (v: number) => `${v < 0 ? "−" : ""}₹${num(Math.abs(v))} cr`;
+
 export const FIELD_NAMES: Record<string, string> = {
   "pl.revenue": "Revenue from operations", "pl.other_income": "Other income", "pl.total_income": "Total income",
   "pl.total_expenses": "Total expenses", "pl.employee": "Employee benefits", "pl.finance_cost": "Finance costs",

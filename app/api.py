@@ -402,6 +402,38 @@ def run_explain(run_id: str) -> dict:
             "features": explain(features, scorer)}
 
 
+@router.get("/runs/{run_id}/lead-manager")
+def run_lead_manager(run_id: str) -> dict:
+    """The lead manager's earlier SME IPOs with a known six-month result before the bid,
+    for the report's track-record chart (the same rule as the F10 check)."""
+    result = json.loads(_result_path(run_id).read_text())
+    o = result["output"]
+    ipo_id, as_of = o["ipo"]["ipo_id"], o["as_of"]
+    with _db() as conn:
+        if uploads.is_upload(ipo_id):
+            names = [n.strip() for n in (o["ipo"].get("banker_raw") or "").split(",") if n.strip()]
+            rows = [dict(r) for r in conn.execute(
+                "SELECT b.banker_id, b.canonical_name, a.alias FROM bankers b "
+                "LEFT JOIN banker_alias a ON a.banker_id = b.banker_id")]
+            ids = [h["banker_id"] for n in names if (h := uploads._match(n, rows, "canonical_name"))]
+        else:
+            ids = [r[0] for r in conn.execute("SELECT banker_id FROM ipo_banker WHERE ipo_id = ? "
+                                              "ORDER BY position", (ipo_id,))]
+        if not ids:
+            return {"banker": None, "ipos": [], "base_rate": None}
+        banker = conn.execute("SELECT canonical_name FROM bankers WHERE banker_id = ?",
+                              (ids[0],)).fetchone()[0]
+        ipos = [dict(r) for r in conn.execute(
+            """SELECT i.company, i.listing_date, l.ret_6m, l.adverse, l.outcome_known_on
+               FROM ipo_banker ib JOIN ipos i ON i.ipo_id = ib.ipo_id
+               JOIN labels l ON l.ipo_id = ib.ipo_id
+               WHERE ib.banker_id = ? AND l.outcome_known_on < ? AND ib.ipo_id <> ?
+               ORDER BY i.listing_date""", (ids[0], as_of, ipo_id))]
+        base = conn.execute("SELECT avg(adverse) FROM labels WHERE outcome_known_on < ?",
+                            (as_of,)).fetchone()[0]
+    return {"banker": banker, "ipos": ipos, "base_rate": base}
+
+
 @router.get("/runs/{run_id}/trace")
 def run_trace(run_id: str) -> list[dict]:
     _result_path(run_id)

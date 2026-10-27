@@ -203,7 +203,7 @@ export interface Backtest {
     split: { train: number; test: number; train_from: string; train_to: string; test_from: string; test_to: string };
     base_rate_train: number;
     selection: { validation_auc: Record<string, number>; validation: { n: number; from: string } };
-    model: Metrics;
+    model: Metrics & { reliability?: { n: number; p_mean: number; observed: number; p_from: number; p_to: number }[] };
     baseline_banker_model_v0: Metrics;
     baseline_banker_rule: Metrics;
     coverage_test: Record<string, number>;
@@ -226,4 +226,10 @@ export interface Status {
     nemotron?: string[];
     roles?: Record<string, string>;
   };
+}
+
+export interface LeadManager {
+  banker: string | null;
+  ipos: { company: string; listing_date: string; ret_6m: number | null; adverse: number; outcome_known_on: string }[];
+  base_rate: number | null;
 }
