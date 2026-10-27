@@ -37,6 +37,26 @@ def main(argv: list[str]) -> int:
                         help="investigate in sample mode (no network, recorded replies)")
     args = parser.parse_args(argv)
     cfg = settings()
+    # serve and investigate never open the archive here: connect() would create an
+    # empty data/archive.db on a fresh clone and hide the sample database.
+    if args.stages[0] == "serve":
+        import os
+        import uvicorn
+        uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+        return 0
+
+    if args.stages[0] == "investigate":
+        import json
+        from agent.main import RunError, investigate
+        try:
+            out = investigate(cfg, args.stages[1], sample_mode=True if args.sample else None)
+        except RunError as e:           # the same structured error POST /run returns
+            print(json.dumps({"status": "error", "error": {
+                "type": e.type, "message": str(e), "recoverable": e.recoverable}}, indent=2))
+            return 1
+        print(json.dumps(out, indent=2, default=str))
+        return 0
+
     conn = connect(cfg.archive_db)
 
     if args.stages[0] == "sebi-review":
@@ -59,18 +79,6 @@ def main(argv: list[str]) -> int:
             parser.error("use: sebi-review export|import|model")
         return 0
 
-    if args.stages[0] == "investigate":
-        import json
-        from agent.main import RunError, investigate
-        try:
-            out = investigate(cfg, args.stages[1], sample_mode=True if args.sample else None)
-        except RunError as e:           # the same structured error POST /run returns
-            print(json.dumps({"status": "error", "error": {
-                "type": e.type, "message": str(e), "recoverable": e.recoverable}}, indent=2))
-            return 1
-        print(json.dumps(out, indent=2, default=str))
-        return 0
-
     if args.stages[0] == "llm-baseline":
         from agent.llm import Budget, gateway_from_env
         from pipeline.llm_baseline import run_baseline
@@ -85,12 +93,6 @@ def main(argv: list[str]) -> int:
         print(f"{len(summary['found'])} open or upcoming SME IPO(s) ready; "
               f"{len(summary['errors'])} error(s)")
         return 0 if not summary["errors"] else 1
-
-    if args.stages[0] == "serve":
-        import os
-        import uvicorn
-        uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
-        return 0
 
     if args.stages[0] == "zetaris":
         from pipeline import zetaris_setup

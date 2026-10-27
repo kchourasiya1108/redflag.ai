@@ -236,3 +236,30 @@ data/gates/*.tmp
 
 # Backup of the Linux-PC Zetaris settings
 .env.linux-pc
+
+# >>> submission (scripts/prepare_submission.sh) >>>
+# secrets: never commit a real .env or keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+# AI assistant and editor folders, AI-written docs, submission media
+.claude/
+.cursor/
+.vscode/
+.idea/
+CLAUDE.md
+AGENTS.md
+docs/DESIGN.md
+docs/SETUP.md
+submission/
+# offline training inputs (rebuilt by the pipeline, not needed to run)
+data/manual/
+data/review/
+data/backtest/
+data/model/*
+!data/model/scorer.json
+# <<< submission <<<
