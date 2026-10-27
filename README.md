@@ -203,25 +203,35 @@ Nemotron replies for the demo IPOs, with no network:
 
 ## Backtest
 
-`run.py extract features train` uses a time split: 390 training IPOs and
-205 test IPOs.
+`run.py labels features train` uses a time split on the 726 labelled IPOs
+(2023 to April 2026): the newest 30% are the test set, never seen in training.
 
-| On the 205 test IPOs | AUC | Recall at HIGH | False alarms |
-|---|---|---|---|
-| **v2 scorer** (banker + watchlist + RHP numbers) | **0.662** | **36%** | 15.6% |
-| v0 banker-only model | 0.603 | 29% | 8.2% |
-| banker rule | 0.576 | 0% | 0% |
+| On the 218 test IPOs (Jun 2025 – Apr 2026) | AUC | Bad IPOs flagged HIGH | High-risk hit rate | False alarms | Brier |
+|---|---|---|---|---|---|
+| **v2 scorer** (banker + watchlist + RHP numbers) | **0.671** | 39% | **44%** (base 27%) | 18% | **0.184** |
+| v0 banker-only model | 0.588 | | | | |
+| banker rule | 0.572 | | | | |
+
+Recent IPOs ended badly more often than the training years, so raw scores
+under-predicted. A base-rate shift (+0.80 log-odds) fitted on the validation
+years is folded into the intercept, and the band cut-offs move with it: the
+same IPOs land in each band, and the odds a report shows are honest (Brier
+0.191 → 0.184; the lowest fifth now reads 10% against 14% observed). The
+backtest also reports a reliability table and the abstention rate (2.8%).
+
+The extended feature set (market maker and anchor records, supplier share,
+offer-for-sale share, financial ratios) scored lower on validation, so those
+checks explain reports but are not model inputs yet.
 
 The single-prompt Nemotron baseline (`run.py llm-baseline`) scores AUC 0.503
-on the 189 test IPOs with RHP text, against 0.673 for the v2 scorer on the
-same IPOs. It catches 72% of adverse IPOs at HIGH, but only by flagging 77%
-of the fine ones.
+on the earlier 189-IPO test set with RHP text, against 0.673 for the scorer
+on the same IPOs: no better than a coin flip.
 
 See [docs/DESIGN.md](docs/DESIGN.md#backtest-results) for the details.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q              # 153 tests, no network
+.venv/bin/python -m pytest -q              # 174 tests, no network
 .venv/bin/python smoke_test.py --full      # live: Zetaris + Meterless
 ```
