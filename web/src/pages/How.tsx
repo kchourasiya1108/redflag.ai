@@ -6,7 +6,7 @@ import type { Metrics } from "../types";
 import { FLAGS, pct, useAsync } from "../lib";
 import { hitRates } from "./Home";
 
-const NOT_YET = new Set(["F12", "F13", "F14"]);
+const NOT_YET = new Set<string>();
 
 const STEPS = [
   { icon: <Gavel size={18} />, t: "Check the people", d: "Everyone named in the issue is checked against SEBI orders, and we look at how the lead manager's earlier SME IPOs did." },

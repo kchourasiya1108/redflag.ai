@@ -108,7 +108,7 @@ def ipo(ipo_id: str) -> dict:
             (ipo_id,))]
     keep = ("ipo_id", "company", "exchange", "symbol", "industry", "issue_type", "issue_price",
             "face_value", "lot_size", "open_date", "close_date", "listing_date", "issue_size_cr",
-            "banker_raw", "registrar_raw", "market_maker_raw", "rhp_url")
+            "banker_raw", "registrar_raw", "market_maker_raw", "rhp_url", "final_subscription_x")
     meta = {k: row[k] for k in keep if k in row.keys()}
     return {"ipo": meta, "docs": docs, "in_sample": ipo_id in _sample_ids(),
             "recorded": ipo_id in _recorded_ids(),
@@ -179,7 +179,8 @@ def _upload_detail(record: dict) -> dict:
             "lot_size": f.get("lot_size"), "open_date": f.get("open_date"),
             "banker_raw": ", ".join(f.get("lead_managers") or []) or None,
             "registrar_raw": f.get("registrar"), "market_maker_raw": f.get("market_maker"),
-            "issue_type": record["detected"].get("issue_type"), "rhp_url": None}
+            "issue_type": record["detected"].get("issue_type"), "rhp_url": None,
+            "final_subscription_x": (record.get("source") or {}).get("subscription_x")}
     return {"ipo": meta, "docs": [{"doc_type": "rhp", "pages": record["pages"],
                                    "text_pages": record["text_pages"], "status": record["status"],
                                    "url": ""}],

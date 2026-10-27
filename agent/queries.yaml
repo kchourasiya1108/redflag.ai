@@ -284,3 +284,68 @@ ipo_issue:
     SELECT issue_shares, fresh_shares, ofs_shares
     FROM RF_ARCHIVE.ipos
     WHERE ipo_id = :ipo_id
+
+ipo_anchors:
+  time_free: true      # anchors are allocated the working day before the bid opens
+  params: {ipo_id: id}
+  columns: {investor_key: str, name: str, pct: float}
+  max_rows: 100
+  sql: >
+    SELECT investor_key, name, pct
+    FROM RF_ARCHIVE.anchors
+    WHERE ipo_id = :ipo_id
+    ORDER BY pct DESC
+
+anchor_track_record:
+  # Earlier issues that shared an anchor investor with this one, with outcomes known
+  # before as_of (data guide 9.2: anchor repeat bad rate).
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {ipo_id: id, as_of: date}
+  columns: {ipo_id: str, shared: int, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 3000
+  sql: >
+    SELECT l.ipo_id, count(*) AS shared, max(l.crashed) AS crashed, max(l.suspended) AS suspended,
+           max(l.sebi_action) AS sebi_action, max(l.sebi_action_date) AS sebi_action_date,
+           max(l.outcome_known_on) AS outcome_known_on
+    FROM RF_ARCHIVE.anchors a1
+    JOIN RF_ARCHIVE.anchors a2 ON a2.investor_key = a1.investor_key AND a2.ipo_id <> a1.ipo_id
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = a2.ipo_id
+    WHERE a1.ipo_id = :ipo_id
+      AND l.outcome_known_on < :as_of
+    GROUP BY l.ipo_id
+    ORDER BY l.ipo_id
+
+ipo_drhp_facts:
+  time_free: true      # the draft prospectus is filed months before the bid opens
+  params: {ipo_id: id}
+  columns: {field: str, fiscal_year: str, value: float, page: int, verified: int}
+  max_rows: 2000
+  sql: >
+    SELECT field, fiscal_year, value, page, verified
+    FROM RF_ARCHIVE.drhp_facts
+    WHERE ipo_id = :ipo_id
+    ORDER BY field, fiscal_year
+
+market_security_names:
+  time_free: true      # reference data: NSE equity symbols and names, for matching peers
+  params: {}
+  columns: {symbol: str, isin: str, name: str}
+  max_rows: 10000
+  sql: >
+    SELECT symbol, isin, name
+    FROM RF_ARCHIVE.market_securities
+    ORDER BY symbol
+
+market_close_before:
+  # A listed peer's closing price on the last trading day before the bid opened.
+  time_rule: {column: date, op: "<"}
+  params: {symbol: id, as_of: date}
+  columns: {date: date, close: float}
+  max_rows: 1
+  sql: >
+    SELECT date, close
+    FROM RF_PRICES.market_closes
+    WHERE symbol = :symbol AND date < :as_of
+    ORDER BY date DESC
+    LIMIT 1

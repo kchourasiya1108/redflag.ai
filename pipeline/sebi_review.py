@@ -22,9 +22,10 @@ from pydantic import BaseModel, Field
 
 from pipeline.common import names
 
-SYSTEM = ("You review links between Indian regulatory orders and companies or merchant "
-          "bankers. Decide only from the order text given. Be strict: the same name in a "
-          "different company, or a passing mention, is not a link.")
+SYSTEM = ("You review links between Indian regulatory orders and companies, merchant "
+          "bankers, or the promoters and directors of SME IPO companies. Decide only from the "
+          "order text given. Be strict: the same name in a different company, a different "
+          "person who shares the name, or a passing mention, is not a link.")
 
 
 class Review(BaseModel):
@@ -49,6 +50,16 @@ def passages(text: str, name: str, budget: int = 7000) -> str:
 
 
 def describe(conn, row) -> str:
+    if row["entity_role"] == "person" and row["entity_id"]:
+        rows = conn.execute("SELECT p.name, p.role, i.company, i.open_date FROM ipo_people p "
+                            "JOIN ipos i USING (ipo_id) WHERE p.person_key = ? ORDER BY i.open_date",
+                            (row["entity_id"].rsplit(":", 1)[1],)).fetchall()
+        if rows:
+            roles = "; ".join(f"{r['role']} of '{r['company']}' (SME IPO, bid {r['open_date']})"
+                              for r in rows[:4])
+            return (f"the person '{rows[0]['name']}', {roles}. Confirm only if the order names this "
+                    "same person (for example with the same company, family name or address), "
+                    "not just someone with the same name")
     if row["entity_role"] == "company" and row["entity_id"]:
         ipo = conn.execute("SELECT company, exchange, open_date, listing_date FROM ipos "
                            "WHERE ipo_id = ?", (row["entity_id"].rsplit(":", 1)[1],)).fetchone()

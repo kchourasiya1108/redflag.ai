@@ -254,6 +254,41 @@ CREATE TABLE IF NOT EXISTS ipo_people (
     PRIMARY KEY (ipo_id, person_key, role)
 );
 
+-- S09: anchor investors per NSE SME IPO (pipeline/anchors.py), for F13.
+CREATE TABLE IF NOT EXISTS anchors (
+    ipo_id          TEXT NOT NULL REFERENCES ipos(ipo_id),
+    investor_key    TEXT NOT NULL,          -- normalised name, the same across IPOs
+    name            TEXT NOT NULL,
+    shares          INTEGER,
+    pct             REAL,                   -- of the anchor portion
+    PRIMARY KEY (ipo_id, investor_key)
+);
+
+-- S20: restated facts read from each IPO's draft prospectus (pipeline/drhp.py), for F12.
+CREATE TABLE IF NOT EXISTS drhp_facts (
+    ipo_id          TEXT NOT NULL REFERENCES ipos(ipo_id),
+    field           TEXT NOT NULL,
+    fiscal_year     TEXT NOT NULL,
+    value           REAL,
+    unit            TEXT,
+    page            INTEGER,
+    verified        INTEGER NOT NULL,
+    PRIMARY KEY (ipo_id, field, fiscal_year)
+);
+
+-- S11: NSE equity closes for re-pricing F8's listed peers (pipeline/market_prices.py).
+CREATE TABLE IF NOT EXISTS market_securities (
+    symbol          TEXT PRIMARY KEY,
+    isin            TEXT,
+    name            TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS market_closes (
+    symbol          TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    close           REAL NOT NULL,
+    PRIMARY KEY (symbol, date)
+);
+
 -- S03: registrar and market maker masters, built like the banker master.
 CREATE TABLE IF NOT EXISTS registrars (
     registrar_id    INTEGER PRIMARY KEY,

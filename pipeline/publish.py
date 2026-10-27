@@ -27,13 +27,14 @@ TABLES = ["ipos", "bankers", "banker_alias", "ipo_banker", "trading_days", "pric
           "corp_actions", "labels", "sebi_orders", "sebi_order_entity", "entities",
           "entity_alias", "entity_edge", "docs", "facts", "features",
           "auditors", "auditor_alias", "ipo_auditor", "market_makers", "mm_alias",
-          "ipo_market_maker", "registrars", "registrar_alias", "ipo_people"]
+          "ipo_market_maker", "registrars", "registrar_alias", "ipo_people", "anchors", "drhp_facts",
+          "market_securities", "market_closes"]
 PG_TYPES = {"INTEGER": "BIGINT", "REAL": "DOUBLE PRECISION", "TEXT": "TEXT", "": "TEXT"}
 # Postgres route: one database per Zetaris source (<db>_archive, <db>_live,
 # <db>_prices), tables in `public`, because Zetaris discovers only `public`.
-PG_DATABASES = {"archive": [t for t in TABLES if t != "prices"],
+PG_DATABASES = {"archive": [t for t in TABLES if t not in ("prices", "market_closes")],
                 "live": ["sebi_orders", "sebi_order_entity"],
-                "prices": ["prices"]}
+                "prices": ["prices", "market_closes"]}
 # Demo IPOs for sample mode; their bankers' full histories come along.
 # HIGH (named in a SEBI order after listing), ELEVATED, and LOW demo cases.
 DEFAULT_SAMPLE = "BSE-2024-544168,NSE-2023-SYNOPTICS,BSE-2024-544310"
@@ -153,6 +154,14 @@ def build_sample(ctx: StageContext) -> int:
         "ipo_auditor": "SELECT * FROM src.ipo_auditor",
         # Everyone's people: a promoter's earlier issues (watchlist hop 2) must match a live run.
         "ipo_people": "SELECT * FROM src.ipo_people",
+        # Every anchor row: an anchor's earlier issues must match a live run.
+        "anchors": "SELECT * FROM src.anchors",
+        "drhp_facts": "SELECT * FROM src.drhp_facts WHERE ipo_id IN (SELECT ipo_id FROM keep)",
+        # Peer prices: the securities master in full, closes only around the demo bid dates.
+        "market_securities": "SELECT * FROM src.market_securities",
+        "market_closes": "SELECT * FROM src.market_closes WHERE date IN (SELECT DISTINCT date "
+                         "FROM src.market_closes WHERE date <= (SELECT max(open_date) FROM src.ipos "
+                         "WHERE ipo_id IN (SELECT ipo_id FROM keep)) ORDER BY date DESC LIMIT 10)",
         "ipo_market_maker": "SELECT * FROM src.ipo_market_maker WHERE ipo_id IN "
                             "(SELECT ipo_id FROM keep)",
         "facts": "SELECT * FROM src.facts WHERE ipo_id IN (SELECT ipo_id FROM keep)",

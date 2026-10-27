@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from agent.agents.base import Agent, AgentResult, RunContext
 from agent.agents.planner import FORENSIC, LIGHT, STANDARD
-from agent.narrative import (insider_discount, objects_summary, peer_valuation, printed_gross,
+from agent.narrative import (reprice_peers, insider_discount, objects_summary, peer_valuation, printed_gross,
                              read_section, rpt_share)
 from agent.specialists import (f4_insider_discount, f6_related_parties, f8_overvalued,
                                f9_use_of_money)
@@ -28,12 +28,6 @@ class NarrativeReader(Agent):
     def run(self, ctx: RunContext) -> AgentResult:
         pages = ctx.scratch.get("pages") or []
         depth = ctx.case.meta.get("depth")
-        if depth == FORENSIC:
-            # FORENSIC extras whose sources RedFlag does not collect yet.
-            for item, why in (("F12 drift between drafts", "the DRHP is not in the archive"),
-                              ("F13 repeat anchors / market maker", "anchor lists are not collected"),
-                              ("F14 credit rating actions", "rating actions are not collected")):
-                ctx.case.add_not_checked(item, why, agent=self.name)
         if (ctx.gateway is None or not pages or depth not in SECTIONS_BY_DEPTH
                 or ctx.seconds_left() < 180):
             why = ("no model configured" if ctx.gateway is None else "no RHP text" if not pages
@@ -94,7 +88,8 @@ class NarrativeReader(Agent):
                                      agent=self.name)
         basis = results.get("basis")
         if basis and basis.data.get("peers"):
-            self._record(ctx, f8_overvalued(peer_valuation(basis.data, ctx.meta.get("company", ""))),
+            self._record(ctx, f8_overvalued(reprice_peers(peer_valuation(basis.data, ctx.meta.get("company", "")),
+                                                          ctx.port, ctx.as_of)),
                          basis, "F8 valuation vs peers", done)
         elif basis:
             ctx.case.add_not_checked("F8 valuation vs peers", basis.error or "the comparison with listed peers could not be read",

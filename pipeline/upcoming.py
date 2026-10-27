@@ -100,7 +100,7 @@ def load_issue(cfg: Settings, fetcher, issue: dict) -> dict:
     if body is None:
         raise uploads.UploadError("the RHP link returned nothing")
     source = {k: issue.get(k) for k in ("exchange", "symbol", "status", "open_date", "close_date",
-                                        "price_band", "url", "rhp_url")}
+                                        "price_band", "url", "rhp_url", "subscription_x")}
     return uploads.create(cfg, pick_rhp_pdf(body, issue["rhp_url"]), f"{issue['company']} RHP.pdf",
                           exchange_hint=issue, source=source)
 
@@ -123,6 +123,7 @@ def nse_issues(cfg: Settings, fetcher, need_rhp: bool = True) -> list[dict]:
         band = [float(x) for x in re.findall(r"Rs\.?\s*([\d.]+)", row.get("issuePrice") or "")]
         opened = universe.parse_date(row.get("issueStartDate"))
         closed = universe.parse_date(row.get("issueEndDate"))
+        sub = (detail.get("demandGraph") or {}).get("noOfTimesIssueSubscribed")
         lead = universe._clean(info.get("Book Running Lead Managers")
                                or info.get("Book Running Lead Manager") or info.get("Lead Managers"))
         out.append({
@@ -136,7 +137,9 @@ def nse_issues(cfg: Settings, fetcher, need_rhp: bool = True) -> list[dict]:
             "market_maker": universe._clean(info.get("Market Maker")),
             "lot_size": universe.lot_size(info),
             "url": f"https://www.nseindia.com/market-data/issue-information?symbol={symbol}&series=SME&type=Active",
-            "rhp_url": rhp, "referer": NSE_REFERER, "source": "nse"})
+            "rhp_url": rhp, "referer": NSE_REFERER, "source": "nse",
+            # Context only (design: never scored): how many times the issue is subscribed.
+            "subscription_x": universe._num(str(sub)) if sub not in (None, "-", "") else None})
     return out
 
 

@@ -133,9 +133,9 @@ export const FLAGS: Record<string, { title: string; what: string; why: string; a
     ask: "At what price did insiders get shares in the last 18 months, and when does their lock-in end?",
   },
   F5: {
-    title: "Depends on a few customers", what: "Revenue depends on a handful of customers",
-    why: "Losing one large customer could cut revenue sharply.",
-    ask: "Who are the largest customers, and are there long-term contracts with them?",
+    title: "Depends on a few customers or suppliers", what: "Revenue or purchases concentrated in a handful of names",
+    why: "Losing one large customer, or one key supplier, could hit the business sharply.",
+    ask: "Who are the largest customers and suppliers, and are there long-term contracts with them?",
   },
   F6: {
     title: "Business with related parties", what: "Sales and purchases with promoters' own firms as a share of revenue",
@@ -167,9 +167,26 @@ export const FLAGS: Record<string, { title: string; what: string; why: string; a
     why: "A connected party has been named by the regulator before. Worth knowing; it is not proof of wrongdoing by this company.",
     ask: "What was the SEBI order about, and is the named party still involved?",
   },
-  F12: { title: "Changes between draft and final prospectus", what: "What changed between the DRHP and the RHP", why: "Late changes can hide problems found during review." },
-  F13: { title: "Same anchor investors across issues", what: "The same anchor investors or market maker across issues", why: "A repeat group of anchors can signal a coordinated listing." },
-  F14: { title: "Credit rating downgrades", what: "Rating downgrades before the issue", why: "A recent downgrade means lenders see more risk." },
+  F12: {
+    title: "Changes between draft and final prospectus", what: "Restated figures that moved between the DRHP and the RHP",
+    why: "Restated accounts should not change between drafts; a late change can hide problems found during review.",
+    ask: "Why did the restated figures change between the draft and the final prospectus?",
+  },
+  F13: {
+    title: "Market maker's and anchors' record", what: "How earlier IPOs with the same market maker or anchor investors turned out",
+    why: "A market maker or a group of anchors that keeps appearing in IPOs that fall sharply is a warning sign.",
+    ask: "Who are the anchor investors, and how have their earlier SME investments performed?",
+  },
+  F14: {
+    title: "Credit rating trouble", what: "Downgrades, default or 'Issuer Not Cooperating' disclosed in the RHP",
+    why: "A downgrade or a non-cooperating issuer means lenders see more risk than the prospectus may suggest.",
+    ask: "What happened with the company's credit rating, and has it been resolved?",
+  },
+  F19: {
+    title: "Sellers cashing out", what: "How much of the issue is an offer for sale by existing shareholders",
+    why: "Money from an offer for sale goes to the sellers, not the company; a large share means insiders are exiting.",
+    ask: "Why are the existing shareholders selling, and how much of their holding are they selling?",
+  },
 };
 
 /** Investor wording for the overall rating. */

@@ -231,7 +231,7 @@ def peer_valuation(data: dict, company: str = "") -> dict:
             continue                    # the issuer's own row in the table
         pe = _num(p.get("pe"))
         if pe and pe > 0:
-            peers.append({"name": name, "pe": pe, "page": _num(p.get("page"))})
+            peers.append({"name": name, "pe": pe, "eps": _num(p.get("eps")), "page": _num(p.get("page"))})
     own_pe = [_num(p.get("pe")) for p in data.get("peers", [])
               if _is_issuer(own, str(p.get("name", "")))]
     issue_pe = _num(data.get("issue_pe")) or next((x for x in own_pe if x), None)
@@ -239,6 +239,45 @@ def peer_valuation(data: dict, company: str = "") -> dict:
     return {"issue_pe": issue_pe, "peer_median_pe": med, "peers": peers,
             "premium": issue_pe / med if issue_pe and med else None,
             "pages": sorted({int(p["page"]) for p in peers if p["page"]})}
+
+
+_SYMBOL_OK = re.compile(r"^[A-Za-z0-9_.:-]+$")
+PEER_MATCH_AT = 0.85
+
+
+def reprice_peers(valuation: dict, port, as_of: date) -> dict:
+    """F8 on the bid date (data guide 9.1): each listed peer's P/E from its NSE close on
+    the last trading day before as_of over the EPS the RHP prints. Peers that cannot
+    be matched to an NSE equity keep the RHP's printed P/E."""
+    from pipeline.common import names as namelib
+    peers = valuation.get("peers") or []
+    if not peers or port is None:
+        return valuation
+    try:
+        market = port.run("market_security_names").rows
+    except Exception:           # no market table on this route: keep the printed ratios
+        return valuation
+    repriced, dates = 0, set()
+    for p in peers:
+        eps = _num(p.get("eps"))
+        if not eps or eps <= 0:
+            continue
+        best = max(market, key=lambda m: namelib.similarity(m["name"], p["name"]), default=None)
+        if not best or namelib.similarity(best["name"], p["name"]) < PEER_MATCH_AT \
+                or not _SYMBOL_OK.match(best["symbol"]):
+            continue
+        rows = port.run("market_close_before", symbol=best["symbol"], as_of=as_of).rows
+        if rows:
+            p["pe_printed"], p["pe"] = p["pe"], round(rows[0]["close"] / eps, 2)
+            p["symbol"], p["price_date"] = best["symbol"], str(rows[0]["date"])
+            repriced += 1
+            dates.add(str(rows[0]["date"]))
+    out = dict(valuation)
+    med = _median([p["pe"] for p in peers if p.get("pe")])
+    out.update(peers=peers, peer_median_pe=med, repriced=repriced,
+               priced_on=max(dates) if dates else None,
+               premium=out["issue_pe"] / med if out.get("issue_pe") and med else None)
+    return out
 
 
 def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:

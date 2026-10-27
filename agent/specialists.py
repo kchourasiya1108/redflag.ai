@@ -13,6 +13,7 @@ are never compared with full years).
 from __future__ import annotations
 
 from datetime import date
+import re
 
 from dataclasses import dataclass
 from statistics import mean
@@ -286,10 +287,12 @@ def f8_overvalued(summary: dict) -> Finding | None:
         return None
     sev = "HIGH" if premium > 2.5 else "ELEVATED" if premium > 1.5 else "LOW"
     names = ", ".join(p["name"] for p in summary["peers"][:4])
+    how = (f", {summary['repriced']} of {len(summary['peers'])} re-priced at their NSE close on "
+           f"{summary['priced_on']}" if summary.get("repriced") else ", as printed in the RHP")
     return Finding("F8", sev, summary,
                    f"Issue P/E {summary['issue_pe']:.1f} against a median of "
                    f"{summary['peer_median_pe']:.1f} for the listed peers the RHP names "
-                   f"({names}): {premium:.1f}x.", summary.get("pages", []))
+                   f"({names}{how}): {premium:.1f}x.", summary.get("pages", []))
 
 
 def f9_use_of_money(summary: dict, pages: list[int]) -> Finding | None:
@@ -332,3 +335,74 @@ def f19_offer_for_sale(shares: dict, as_of: date) -> Finding | None:
         text += " That is above the 20% cap in the SME rules at the bid date."
     return Finding("F19", sev, {"ofs_share": round(share, 4), "issue_shares": total,
                                 "ofs_shares": ofs or 0, "cap": OFS_CAP if capped else None}, text, [])
+
+
+# Restated figures should be the same in the draft and the final prospectus.
+DRIFT_FIELDS = ("pl.revenue", "pl.pat", "pl.pbt", "bs.total_assets", "bs.equity", "cf.cfo")
+DRIFT_AT = (0.10, 0.03)       # (HIGH, ELEVATED) relative change; starting values
+
+
+def f12_drift(rhp: FactSource, drhp_rows: list[dict]) -> Finding | None:
+    """Changes between the DRHP and the RHP in the same restated figure (data guide S20/S21)."""
+    draft = {(r["field"], r["fiscal_year"]): r for r in drhp_rows if r["verified"]}
+    changes = []
+    for (fld, fy), r in draft.items():
+        if fld not in DRIFT_FIELDS:
+            continue
+        now = rhp.get(fld, fy)
+        if now is None or not r["value"]:
+            continue
+        rel = abs(now - r["value"]) / abs(r["value"])
+        changes.append((rel, fld, fy, r["value"], now, rhp.page(fld, fy), r["page"]))
+    if not changes:
+        return None
+    worst = max(changes)
+    rel, fld, fy, before, after, page, _ = worst
+    sev = "HIGH" if rel >= DRIFT_AT[0] else "ELEVATED" if rel >= DRIFT_AT[1] else "LOW"
+    label = {"pl.revenue": "revenue", "pl.pat": "profit after tax", "pl.pbt": "profit before tax",
+             "bs.total_assets": "total assets", "bs.equity": "total equity",
+             "cf.cfo": "cash from operations"}[fld]
+    text = (f"{len(changes)} restated figures compared between the draft and the final prospectus. "
+            + (f"The largest change: {fy} {label} ₹{before:.2f} cr in the draft, ₹{after:.2f} cr in "
+               f"the RHP ({rel:.0%})." if rel >= DRIFT_AT[1] else
+               "They match: no figure moved by 3% or more."))
+    return Finding("F12", sev, {"compared": len(changes), "max_change": round(rel, 4),
+                                "field": fld, "fiscal_year": fy, "drhp": before, "rhp": after},
+                   text, [p for p in (page,) if p])
+
+
+_AGENCY = re.compile(r"(?i)\b(?:CRISIL|ICRA|CARE(?:\s+Ratings|Edge)?|India\s+Ratings|Ind-Ra|Acuit[eé]|"
+                     r"Brickwork|Infomerics|SMERA)\b")
+_DEFAULT = re.compile(r"(?i)\b(?:rated|rating\s+of|assigned)\b[^.]{0,60}?\b(?:[A-Z]+\s)?D\b(?![a-z])|"
+                      r"\bdefault\s+(?:grade|rating)\b")
+_ADVERSE = re.compile(r"(?i)\bdowngrad\w*|issuer\s+not\s+cooperating|\bINC\b|rating[s]?\s+"
+                      r"(?:was\s+|were\s+|has\s+been\s+)?(?:suspended|withdrawn)|negative\s+outlook|"
+                      r"credit\s+watch\s+with\s+negative")
+
+
+def f14_rating(pages: list[str]) -> Finding | None:
+    """Credit rating actions the RHP discloses (data guide F14): a default rating, or a
+    downgrade, 'Issuer Not Cooperating', a suspended or withdrawn rating, near an agency."""
+    worst, mentioned = None, []
+    for i, text in enumerate(pages, 1):
+        flat = re.sub(r"\s+", " ", text)
+        for m in _AGENCY.finditer(flat):
+            window = flat[max(0, m.start() - 250): m.end() + 250]
+            if not re.search(r"(?i)\brating", window):
+                continue
+            mentioned.append(i)
+            sev = ("HIGH" if _DEFAULT.search(window) else "ELEVATED" if _ADVERSE.search(window)
+                   else None)
+            if sev and (worst is None or (sev == "HIGH" and worst[0] != "HIGH")):
+                stop = window.rfind(". ", 0, 250)
+                start = stop + 2 if stop >= 0 else 0
+                worst = (sev, i, window[start: start + 260].strip())
+    if worst is None and not mentioned:
+        return None
+    if worst is None:
+        return Finding("F14", "LOW", {"pages": sorted(set(mentioned))[:5]},
+                       "The prospectus discloses credit ratings with no downgrade, default or "
+                       "'Issuer Not Cooperating' mentioned.", sorted(set(mentioned))[:3])
+    sev, page, quote = worst
+    return Finding("F14", sev, {"quote": quote}, f"The prospectus discloses an adverse credit rating "
+                   f"action: \u201c{quote}\u2026\u201d", [page])

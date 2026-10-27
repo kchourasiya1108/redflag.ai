@@ -121,6 +121,7 @@ function AboutIpo({ ipoId }: { ipoId: string }) {
     ["Lead manager", i.banker_raw ? titleCase(String(i.banker_raw)) : null],
     ["Registrar", i.registrar_raw ? titleCase(String(i.registrar_raw)) : null],
     ["Market maker", i.market_maker_raw ? titleCase(String(i.market_maker_raw)) : null],
+    ["Subscribed", i.final_subscription_x ? `${Number(i.final_subscription_x).toFixed(1)}× (context only, not rated)` : null],
   ];
   return (
     <Card title="About this IPO">

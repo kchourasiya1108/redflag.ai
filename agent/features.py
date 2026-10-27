@@ -221,6 +221,19 @@ def market_maker_features(data: DataPort, ipo_id: str, as_of: date,
     return {"f_mm_crash": rate, "f_mm_n": float(len(history))}
 
 
+def anchor_features(data: DataPort, ipo_id: str, as_of: date,
+                    base_rate: float | None) -> dict[str, float | None]:
+    """F13 (anchors): the share of earlier issues that shared an anchor investor with this
+    one and ended badly, known before as_of, shrunk like the banker's (data guide 9.2)."""
+    if not data.run("ipo_anchors", ipo_id=ipo_id).rows:
+        return {"f_anchor_bad_rate": None, "f_anchor_n": None}
+    history = data.run("anchor_track_record", ipo_id=ipo_id, as_of=as_of).rows
+    bad = sum(adverse_as_of(r, as_of) for r in history)
+    rate = ((bad + SHRINK_K * base_rate) / (len(history) + SHRINK_K)
+            if base_rate is not None else None)
+    return {"f_anchor_bad_rate": rate, "f_anchor_n": float(len(history))}
+
+
 def issue_features(data: DataPort, ipo_id: str) -> dict[str, float | None]:
     """The offer-for-sale share of the issue (F19)."""
     rows = data.run("ipo_issue", ipo_id=ipo_id).rows
@@ -246,6 +259,7 @@ def compute_features(ipo_id: str, as_of: date, data: DataPort,
     features |= auditor_features(data, ipo_id, as_of, features.get("base_rate"))
     features |= market_maker_features(data, ipo_id, as_of, features.get("base_rate"))
     features |= issue_features(data, ipo_id)
+    features |= anchor_features(data, ipo_id, as_of, features.get("base_rate"))
     # RHP features: verified restated numbers only. The backtest reads past
     # extractions from Zetaris (ArchiveFacts); a live run passes CaseFileFacts.
     features |= rhp_features(facts if facts is not None else ArchiveFacts(data, ipo_id))

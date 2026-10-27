@@ -33,7 +33,7 @@ PARTIES = ["f_auditor_changed", "f_auditor_crash", "f_top10_customers"]
 # supplier concentration (F5); the backtest decides whether they earn a place.
 PARTIES_V3 = PARTIES + ["f_mm_crash", "f_top5_customers", "f_top10_suppliers", "f_ofs_share",
                          "f_debt_equity", "f_interest_cover", "f_ebitda_margin", "f_ronw",
-                         "f_recv_days_change"]
+                         "f_recv_days_change", "f_anchor_bad_rate"]
 CANDIDATES = {"v2-banker": BANKER, "v2-banker-watchlist": BANKER + WATCHLIST,
               "v2-banker-watchlist-rhp": BANKER + WATCHLIST + RHP,
               "v2-full": BANKER + WATCHLIST + RHP + PARTIES,
