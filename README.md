@@ -339,8 +339,10 @@ Every run writes:
 - `logs/<run_id>/markovian.jsonl` and the other engine logs.
 - `output/<run_id>/report.md`, `case_file.json`, `result.json`.
 
-`logs/` and `output/` are created at runtime and git-ignored; the three
-traces in `output_examples/` are copies from real runs.
+`logs/` and `output/` are created at runtime and git-ignored, except for
+the three example runs (`logs/trace-example-N.jsonl`, `logs/example-N/`,
+`output/example-N/`), which are committed so the paths in
+`output_examples/*.json` resolve in a fresh clone.
 
 ---
 
