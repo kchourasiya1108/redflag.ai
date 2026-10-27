@@ -9,7 +9,7 @@ import { EvidenceChip, EvidenceProvider } from "../components/Evidence";
 import { Card, Empty, ErrorBox, SeverityBadge, Stat } from "../components/ui";
 import type { CaseFile, Explain, Fact, Reason, RunOutput, RunResult, SkepticNote, TraceEvent } from "../types";
 import {
-  CONCERN_TEXT, FIELD_NAMES, FLAGS, Link, RATING_TEXT, STATEMENTS, cx, date, navigate, notCheckedText, num,
+  CONCERN_TEXT, FEATURE_NAMES, FIELD_NAMES, FLAGS, Link, RATING_TEXT, STATEMENTS, cx, date, navigate, notCheckedText, num,
   odds, pct, plainText, rupees, sentence, useAsync,
 } from "../lib";
 import { titleCase } from "./Home";
@@ -87,7 +87,7 @@ export function Report({ result, cf, explain, trace }: {
                 </button>
               ))}
             </div>
-            {tab === "concerns" && <Concerns output={o} dismissed={dismissed} />}
+            {tab === "concerns" && <Concerns output={o} dismissed={dismissed} explain={explain} />}
             {tab === "financials" && (cf ? <Financials cf={cf} /> : <Empty title="No financials for this check" />)}
             {tab === "score" && (explain ? (
               <Card title="What moved the rating">
@@ -203,7 +203,7 @@ function Questions({ output: o }: { output: RunOutput }) {
 
 // -- concerns -----------------------------------------------------------------
 
-function Concerns({ output: o, dismissed }: { output: RunOutput; dismissed: SkepticNote[] }) {
+function Concerns({ output: o, dismissed, explain }: { output: RunOutput; dismissed: SkepticNote[]; explain: Explain | null }) {
   const note = (flag: string) => o.skeptic_notes.find((n) => n.flag === flag);
   const dismissedIds = new Set(dismissed.map((d) => d.flag));
   const cleared = o.cleared_checks.filter((c) => !dismissedIds.has(c.flag));
@@ -217,9 +217,10 @@ function Concerns({ output: o, dismissed }: { output: RunOutput; dismissed: Skep
   ];
   return (
     <div className="stack">
-      {o.reasons.length === 0 && (
+      {o.reasons.length === 0 && (o.rating === "LOW" || !explain) && (
         <div className="card"><Empty icon={<CheckCircle2 color="var(--low)" />} title="No concerns">Every check we could run either passed or was explained by the prospectus.</Empty></div>
       )}
+      {o.reasons.length === 0 && o.rating !== "LOW" && explain && <RiskDrivers explain={explain} />}
       {o.reasons.map((r) => <ConcernCard key={r.flag} reason={r} note={note(r.flag)} />)}
 
       {fine.length > 0 && (
@@ -257,6 +258,40 @@ function Concerns({ output: o, dismissed }: { output: RunOutput; dismissed: Skep
       )}
     </div>
   );
+}
+
+/** The rating without a single red flag: the model factors that raised it, in plain words. */
+function RiskDrivers({ explain }: { explain: Explain }) {
+  const top = [...explain.features].filter((f) => f.contribution > 0.05)
+    .sort((a, b) => b.contribution - a.contribution).slice(0, 3);
+  return (
+    <article className="concern">
+      <div className="top">
+        <div className="title">No single red flag, but the risk is above a typical SME IPO</div>
+        <SeverityBadge level="ELEVATED" kind="concern" />
+      </div>
+      <div className="body">
+        <p className="why">These are the factors that raised the rating most:</p>
+        <ul className="small stack-sm" style={{ margin: 0, paddingLeft: 18 }}>
+          {top.map((f) => <li key={f.feature}>{driverText(f)}</li>)}
+        </ul>
+        <p className="why">See <b>Why this rating</b> for every factor.</p>
+      </div>
+    </article>
+  );
+}
+
+function driverText(f: Explain["features"][number]): string {
+  const name = FEATURE_NAMES[f.feature] ?? f.feature;
+  if (f.missing) return `${name}: could not be read from the prospectus, which itself adds some risk.`;
+  const v = f.value as number;
+  switch (f.feature) {
+    case "f_banker_median_ret": return `The lead manager's earlier SME IPOs returned ${pct(v, 0)} after six months, typically.`;
+    case "f_banker_crash": return `An adjusted ${pct(v, 0)} of the lead manager's earlier SME IPOs went badly.`;
+    case "f_banker_low_history": return "The lead manager has few earlier SME IPOs to judge it by.";
+    case "f_watchlist_hit": return "Someone involved is named in a SEBI order.";
+    default: return `${name}: ${num(v, 2)}.`;
+  }
 }
 
 /** Prospectus pages and SEBI orders only: what an investor can open and read. */
