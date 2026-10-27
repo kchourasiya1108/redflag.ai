@@ -42,7 +42,12 @@ def check_pl(values: dict, i: int) -> tuple[list[str], list[str]]:
         ran.append("PBT = total income - total expenses")
         if not close(pbt, ti - te) and not close(abs(pbt), abs(ti - te)):
             failed.append(ran[-1])
-    if None not in (pbt, pat):
+    tax = _get(values, "tax", i)
+    if None not in (pbt, pat, tax) and close(pbt - tax, pat):
+        # The printed tax line closes the statement exactly: stronger than the band
+        # below, and right for a loss year or a large deferred tax charge.
+        ran.append("PAT = PBT - tax")
+    elif None not in (pbt, pat):
         ran.append("tax (PBT - PAT) is plausible")
         tax = pbt - pat
         if not (-0.3 * abs(pbt) - ABS_TOL <= tax <= 0.6 * abs(pbt) + ABS_TOL):
@@ -82,7 +87,10 @@ def check_cf(values: dict, i: int) -> tuple[list[str], list[str]]:
                                                              "net_change"))
     if None not in (opening, closing):
         ran.append("CFO + CFI + CFF = change in cash")
-        if not close(cfo + cfi + cff, closing - opening):
+        # Opening and closing cash can be defined differently from the printed net change
+        # (cash vs cash and bank); the printed net change closing the flows also verifies.
+        if not close(cfo + cfi + cff, closing - opening) and not (
+                change is not None and close(cfo + cfi + cff, change)):
             failed.append(ran[-1])
     elif change is not None:
         ran.append("CFO + CFI + CFF = net change in cash")

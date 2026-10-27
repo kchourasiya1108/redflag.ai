@@ -168,9 +168,24 @@ def _latest_full_year_ok(x: Extracted) -> bool:
     return bool(full) and full[0].passed
 
 
-_WORDS = {"one": 1, "three": 3, "five": 5, "ten": 10}
+_WORDS = {"one": 1, "three": 3, "five": 5, "ten": 10, "largest": 1, "single largest": 1}
 _TOPN = re.compile(r"(?is)top\s*(1|3|5|10|one|three|five|ten)\s+(customers?|clients?|buyers?|suppliers?|vendors?)"
                    r"\b.{0,160}?(?<![\d.,])(\d{1,2}(?:\.\d{1,2})?|100(?:\.0+)?)(?!\d)\s*%")
+
+
+# "We derived 73.54% ... of our revenue from our top ten customers" (risk factors).
+_TOPN_BEFORE = re.compile(r"(?is)(?<![\d.,])((?:\d{1,2}(?:\.\d{1,2})?\s*%[\s,]*(?:and\s+|&\s*)?)+)[^%]{0,140}?\bof\s+our\s+(?:total\s+)?"
+                          r"(?:revenue|sales|income|purchases?)[^%]{0,60}?\bfrom\s+(?:our\s+)?top\s*"
+                          r"\(?(1|3|5|10|one|three|five|ten)\)?\s+(customers?|clients?|buyers?|suppliers?|vendors?)")
+# A table row: "Top 5 Customers 2,096.83 52.81 ..." or "Largest Customer 792.88 19.97 ..."
+# (amount, then its share) under a "% of revenue" heading.
+_TOPN_ROW = re.compile(r"(?im)^\W*(largest|top\s*\(?(?:1|3|5|10|one|three|five|ten)\)?)\s+"
+                       r"(customers?|clients?|suppliers?|vendors?)\s+([\d,]+\.\d+)\s+(\d{1,2}\.\d{1,2})\b")
+
+
+def _tier(word: str) -> int | None:
+    word = re.sub(r"(?i)^top\s*|[()\s]", "", word.lower()) or "largest"
+    return _WORDS.get(word) or (int(word) if word.isdigit() else None)
 
 
 def top_shares(pages: list[str]) -> list[dict]:
@@ -179,22 +194,57 @@ def top_shares(pages: list[str]) -> list[dict]:
 
     The first percentage after the phrase is the latest period in the RHP's tables.
     A value is verified only when it is printed on at least two different pages (the
-    risk factors and the business section usually both state it).
+    risk factors and the business section usually both state it), or when it is a row
+    of a table whose amounts and shares agree with another row's.
     """
     seen: dict[tuple[str, float], list[int]] = {}
+    self_checked: set[tuple[str, float]] = set()
+
+    def note(i: int, tier: str, who: str, share: str) -> tuple[str, float] | None:
+        n = _tier(tier)
+        if n not in (1, 3, 5, 10):
+            return None
+        who = "suppliers" if re.match(r"(?i)suppl|vendor", who) else "customers"
+        key = (f"biz.top{n}_{who}_pct", round(float(share), 2))
+        where = seen.setdefault(key, [])
+        if i not in where:
+            where.append(i)
+        return key
     for i, text in enumerate(pages, 1):
         for m in _TOPN.finditer(text):
-            n = _WORDS.get(m.group(1).lower(), None) or int(m.group(1))
-            who = "suppliers" if re.match(r"(?i)suppl|vendor", m.group(2)) else "customers"
-            where = seen.setdefault((f"biz.top{n}_{who}_pct", round(float(m.group(3)), 2)), [])
-            if i not in where:
-                where.append(i)
+            note(i, m.group(1), m.group(2), m.group(3))
+        for m in _TOPN_BEFORE.finditer(text):
+            # "73.54% and 71.33%, 67.44% ... respectively": the first is the latest period.
+            note(i, m.group(2), m.group(3), re.match(r"[\d.]+", m.group(1)).group())
+        if re.search(r"(?i)%\s*of", text):
+            rows = []
+            for m in _TOPN_ROW.finditer(re.sub(r"[ \t]*\n[ \t]*(?=customers?\b|clients?\b|suppliers?\b|vendors?\b)", " ",
+                                               text, flags=re.I)):
+                key = note(i, m.group(1), m.group(2), m.group(4))
+                amount, share = float(m.group(3).replace(",", "")), float(m.group(4))
+                if key and share:
+                    rows.append((key, amount / share))
+            # A table row prints the amount beside its share, so each row implies the
+            # total revenue; rows that agree on it cross-check each other.
+            for key, total in rows:
+                if any(k[0] != key[0] and abs(t - total) <= 0.01 * total for k, t in rows):
+                    self_checked.add(key)
     best: dict[str, tuple[float, list[int]]] = {}
     for (field, value), where in seen.items():
         if field not in best or (len(where), -where[0]) > (len(best[field][1]), -best[field][1][0]):
             best[field] = (value, where)
-    return [{"field": f, "fiscal_year": "", "value": v, "unit": "%", "page": w[0],
-             "verified": len(w) >= 2, "method": "text_pattern"} for f, (v, w) in sorted(best.items())]
+    out = [{"field": f, "fiscal_year": "", "value": v, "unit": "%", "page": w[0],
+            "verified": len(w) >= 2 or (f, v) in self_checked, "method": "text_pattern"}
+           for f, (v, w) in sorted(best.items())]
+    # A larger group can never have a smaller share: out of order, one of them is misread.
+    for who in ("customers", "suppliers"):
+        tiers = sorted((int(re.search(r"top(\d+)", r["field"]).group(1)), r) for r in out
+                       if r["verified"] and r["field"].endswith(f"_{who}_pct"))
+        values = [r["value"] for _, r in tiers]
+        if values != sorted(values):
+            for _, r in tiers:
+                r["verified"] = False
+    return out
 
 
 def top_customers(pages: list[str]) -> dict | None:

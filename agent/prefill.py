@@ -245,3 +245,85 @@ def ai_cover(gateway, pages: list[str], wanted: list[str]) -> dict:
         if lms:
             out["lead_managers"] = lms[:4]
     return out
+
+
+# -- the draft prospectus (F12) ---------------------------------------------------------
+
+SEBI_FILINGS = "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=3&ssid=15&smid=10"
+SEBI_AJAX = "https://www.sebi.gov.in/sebiweb/ajax/home/getnewslistinfo.jsp"
+
+
+def draft_prospectus(cfg: Settings, record: dict, fetcher) -> dict:
+    """The upload's DRHP, found and read without a model, for F12's drift check.
+
+    An SME issue's draft is filed with the exchange: BSE SME's offer-documents index
+    links it (NSE Emerge's archive refuses automated downloads). A main-board draft
+    is filed with SEBI, which lists it under Filings > Public issues. Returns
+    {"source", "url", "facts"} or {"note"} when no draft could be read.
+    """
+    from pipeline import bse_docs
+    from pipeline.drhp import drhp_facts
+    from pipeline.rhp import page_texts, pick_rhp_pdf
+    company = (record.get("fields") or {}).get("company") or (record.get("detected") or {}).get("company")
+    if not company:
+        return {"note": "no company name to look the draft up by"}
+    found = None
+    conn = _archive(cfg)
+    if conn is not None:
+        with conn:
+            try:
+                docs = {r["norm"]: dict(r) for r in conn.execute(
+                    "SELECT * FROM bse_offer_docs WHERE drhp_url IS NOT NULL")}
+            except sqlite3.OperationalError:        # an archive without the BSE index
+                docs = {}
+        doc, _ = bse_docs.match(company, docs)
+        if doc:
+            found = ("bse", doc["drhp_url"], bse_docs.INDEX)
+    if found is None:
+        found = _sebi_draft(fetcher, company, (record.get("fields") or {}).get("open_date"))
+    if found is None:
+        return {"note": "the draft prospectus is not on BSE SME's or SEBI's site"}
+    source, url, referer = found
+    dest = cfg.raw / "drhp" / f"{record['upload_id']}.pdf"
+    if not dest.exists():
+        body = fetcher.get(url, referer=referer)
+        if body is None:
+            return {"note": "the draft prospectus link is broken"}
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(pick_rhp_pdf(body, url))
+    import hashlib
+    sha = hashlib.sha256(dest.read_bytes()).hexdigest()
+    pages = page_texts(dest, cfg.cache / "pages" / f"{sha}.json")
+    facts = [{k: f[k] for k in ("field", "fiscal_year", "value", "page", "verified")}
+             for f in drhp_facts(pages)]
+    return {"source": source, "url": url, "facts": facts}
+
+
+def _sebi_draft(fetcher, company: str, open_date: str | None) -> tuple[str, str, str] | None:
+    """The latest draft SEBI lists for this company before the bid opens."""
+    import html as htmllib
+    fetcher.get(SEBI_FILINGS)          # session cookies for the search endpoint
+    form = {"nextValue": "1", "next": "s", "search": company[:60], "fromDate": "", "toDate": "",
+            "fromYear": "", "toYear": "", "deptId": "-1", "sid": "3", "ssid": "15", "smid": "10",
+            "ssidhidden": "15", "intmid": "-1", "sText": "Filings", "ssText": "Public Issues",
+            "smText": "", "doDirect": "-1"}
+    text = fetcher.post_form(SEBI_AJAX, form, referer=SEBI_FILINGS).decode("utf-8", "ignore")
+    target = namelib.normalise(company)
+    best = None
+    for when, url, title in re.findall(r"<td>\s*([A-Z][a-z]{2} \d{1,2}, \d{4})\s*</td>\s*<td>\s*"
+                                       r"<a href='([^']+)'[^>]*>(.*?)</a>", text, re.S):
+        title = htmllib.unescape(re.sub("<[^>]+>", "", title)).strip()
+        if namelib.normalise(re.sub(r"(?i)\s*-\s*(drhp|draft.*)$", "", title)) != target:
+            continue
+        from datetime import datetime
+        filed = datetime.strptime(when, "%b %d, %Y").date().isoformat()
+        if open_date and filed >= open_date[:10]:
+            continue
+        if best is None or filed > best[0]:
+            best = (filed, url)
+    if best is None:
+        return None
+    page = (fetcher.get(best[1]) or b"").decode("utf-8", "ignore")
+    m = re.search(r"(https?://www\.sebi\.gov\.in/sebi_data/[^'\"&]+\.pdf)", page) \
+        or re.search(r"file=([^'\"&]+\.pdf)", page)
+    return ("sebi", m.group(1), best[1]) if m else None

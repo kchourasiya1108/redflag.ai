@@ -221,3 +221,38 @@ def test_a_slow_model_never_holds_up_the_upload(sample_cfg, monkeypatch):  # noq
                                        ["\n".join(COVER)], gateway=Slow())
     assert _time.time() - t0 < 1.5 and fields["company"] == "Acme Limited"
     assert any("no answer" in n for n in notes)
+
+
+def test_a_main_board_draft_is_found_on_sebi_and_feeds_f12(sample_cfg):  # noqa: F811
+    from agent import prefill
+
+    listing = ("<tr><td>Jan 30, 2026</td><td><a href='https://www.sebi.gov.in/filings/public-issues/jan-2026/"
+               "acme_1.html'>Acme Precision Tools Limited</a></td></tr>"
+               "<tr><td>Nov 02, 2026</td><td><a href='https://www.sebi.gov.in/x_2.html'>"
+               "Acme Precision Tools Limited</a></td></tr>")      # after the bid: not the draft
+    draft = make_pdf([FILLER, ["RESTATED STATEMENT OF PROFIT AND LOSS"]])
+
+    class Fetcher:
+        got = []
+
+        def get(self, url, dest=None, *, referer=None):
+            self.got.append(url)
+            if url.endswith("acme_1.html"):
+                return b"<iframe src='../web/?file=https://www.sebi.gov.in/sebi_data/attachdocs/feb-2026/1.pdf'>"
+            return draft if url.endswith(".pdf") else b""
+
+        def post_form(self, url, data, *, referer, dest=None):
+            return listing.encode()
+    rec = {"upload_id": "UP-test0001", "fields": {"company": "ACME PRECISION TOOLS LIMITED",
+                                                  "open_date": "2026-10-30"}}
+    got = prefill.draft_prospectus(sample_cfg, rec, Fetcher())
+    assert got["source"] == "sebi" and got["url"].endswith("feb-2026/1.pdf") and got["facts"] == []
+    assert not any("x_2" in u for u in Fetcher.got)
+    rec.update(sha256="x", pages=2, text_pages=2, status="ok", detected={},
+               drhp={"facts": [{"field": "pl.pat", "fiscal_year": "FY25", "value": 1.0, "page": 9, "verified": 1}]})
+
+    class Port:
+        def run(self, template, **k):
+            from types import SimpleNamespace
+            return SimpleNamespace(rows=[])
+    assert uploads.local_rows(rec, Port())["ipo_drhp_facts"][0]["field"] == "pl.pat"

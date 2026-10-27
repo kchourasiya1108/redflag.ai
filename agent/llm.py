@@ -43,9 +43,11 @@ class GatewayError(RuntimeError):
     pass
 
 
-# A role that fails falls back once to this role (live runs only). After BREAK_AFTER
-# failures in one gateway (one run), the role goes straight to its fallback.
-FALLBACK_ROLE = {"extract": "reason"}
+# A role that fails falls back along this chain (live runs only): the other Nemotron
+# model first, then the small Bolt model, so a check completes instead of skipping
+# sections when one NVIDIA lane returns 502s (27 Oct 2026). After BREAK_AFTER failures
+# in one gateway (one run), a role is skipped straight to the next in its chain.
+FALLBACK_ROLES = {"extract": ("reason", "backup"), "reason": ("extract", "backup")}
 BREAK_AFTER = 2
 
 
@@ -190,32 +192,32 @@ class Gateway:
                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
                  purpose: str = "", max_tokens: int | None = None,
                  images: list[bytes] | None = None) -> GenResult:
-        fallback = FALLBACK_ROLE.get(route)
-        broken = self._role_failures.get(route, 0) >= BREAK_AFTER
-        if fallback and fallback in self.routes and not self.sample_mode \
-                and not self._is_cached(prompt, system, schema, route, images) \
-                and (broken or self._is_cached(prompt, system, schema, fallback, images)):
-            # This call failed on its own role before and was answered by the fallback:
-            # reuse that answer instead of waiting for the failing model again.
-            return self._generate(prompt, system, schema=schema, route=fallback, purpose=purpose,
-                                  max_tokens=max_tokens, images=images)
-        try:
+        chain = [route] + [r for r in FALLBACK_ROLES.get(route, ()) if r in self.routes]
+        if self.sample_mode or len(chain) == 1:
             return self._generate(prompt, system, schema=schema, route=route, purpose=purpose,
                                   max_tokens=max_tokens, images=images)
-        except (ReplayMiss, BudgetExceeded):
-            raise
-        except GatewayError as e:
-            self._role_failures[route] = self._role_failures.get(route, 0) + 1
-            # The fast extract model can be down while the reasoning model answers
-            # (NVIDIA 502s on 27 Oct 2026): retry that one call on the reasoning role,
-            # live only, so a check completes instead of skipping sections.
-            if self.sample_mode or not fallback or fallback not in self.routes:
+        # A reply already on disk for any role in the chain is reused, the role's own first:
+        # an earlier run's fallback answer is not paid for again by waiting on a failing model.
+        cached = next((r for r in chain if self._is_cached(prompt, system, schema, r, images)), None)
+        if cached:
+            chain = [cached]
+        else:
+            live = [r for r in chain if self._role_failures.get(r, 0) < BREAK_AFTER]
+            chain = live or chain[-1:]
+        last: GatewayError | None = None
+        for i, role in enumerate(chain):
+            try:
+                return self._generate(prompt, system, schema=schema, route=role, purpose=purpose,
+                                      max_tokens=max_tokens, images=images)
+            except (ReplayMiss, BudgetExceeded):
                 raise
-            if self.on_call:
-                self.on_call({"action": "model.retry_or_fallback", "purpose": purpose,
-                              "error": f"{route} failed, retrying on {fallback}: {str(e)[:120]}"})
-            return self._generate(prompt, system, schema=schema, route=fallback, purpose=purpose,
-                                  max_tokens=max_tokens, images=images)
+            except GatewayError as e:
+                last = e
+                self._role_failures[role] = self._role_failures.get(role, 0) + 1
+                if self.on_call and i + 1 < len(chain):
+                    self.on_call({"action": "model.retry_or_fallback", "purpose": purpose,
+                                  "error": f"{role} failed, retrying on {chain[i + 1]}: {str(e)[:120]}"})
+        raise last
 
     def _is_cached(self, prompt: str, system: str | None, schema, role: str, images=None) -> bool:
         """Whether a reply for this call on this role is in the disk cache."""
@@ -329,6 +331,8 @@ class Gateway:
                     if self.on_call:
                         self.on_call({"action": "model.retry_or_fallback",
                                       "provider": provider.name, "error": str(e)[:200]})
+                    if isinstance(e, httpx.TimeoutException):
+                        break       # a model that timed out once is not waited on again; fall back
                     if attempt == 1 and self.retry_backoff_s:
                         time.sleep(self.retry_backoff_s)
                     continue
@@ -427,15 +431,16 @@ def _last_json(text: str) -> str | None:
 
 
 def routes_from_env(env: dict[str, str]) -> dict[str, str]:
-    defaults = {"extract": "meterless/fast", "reason": "meterless/deep"}
+    defaults = {"extract": "meterless/fast", "reason": "meterless/deep",
+                "backup": "nvidia/nemotron-3.5-bolt-e4b"}
     return {role: env.get(f"MODEL_ROUTE_{role.upper()}") or route
             for role, route in defaults.items()}
 
 
 # Measured on Nightshift's Nemotron lanes (25 Oct): below ~4k tokens the
 # reasoning models return an empty or cut-off answer; /no_think shortens it.
-ROLE_MAX_TOKENS = {"extract": 8000, "reason": 8000}
-ROLE_SYSTEM = {"extract": "/no_think"}
+ROLE_MAX_TOKENS = {"extract": 8000, "reason": 8000, "backup": 8000}
+ROLE_SYSTEM = {"extract": "/no_think", "backup": "/no_think"}
 
 
 def role_settings(env: dict[str, str]) -> tuple[dict[str, str], dict[str, int]]:

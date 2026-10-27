@@ -132,3 +132,91 @@ def test_f1_cannot_be_dismissed_on_its_own_signal():
     assert Skeptic.self_explained("F1", "Trade receivable days rose from 12 to 39 days")
     assert not Skeptic.self_explained("F1", "Receivables were collected in the following quarter (page 88)")
     assert not Skeptic.self_explained("F2", "Working capital rose with revenue")
+
+
+def test_when_both_nemotron_lanes_fail_the_backup_model_answers(tmp_path):
+    from agent.llm import Gateway, GatewayError
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "fast", "reason": "deep", "backup": "bolt"})
+    calls = []
+    gw._is_cached = lambda *a, **k: False
+
+    def fake(prompt, system=None, *, route="", **k):
+        calls.append(route)
+        if route != "backup":
+            raise GatewayError("502")
+        return SimpleNamespace(served_model="bolt")
+    gw._generate = fake
+    assert gw.generate("hi", route="reason", purpose="t").served_model == "bolt"
+    assert calls == ["reason", "extract", "backup"]          # the reasoning role falls back too
+    gw.generate("hi", route="reason", purpose="t")
+    gw.generate("hi", route="extract", purpose="t")
+    assert calls[-2:] == ["backup", "backup"]                # broken lanes are skipped
+
+
+def test_a_timed_out_model_is_not_waited_on_twice(tmp_path):
+    import httpx
+    import pytest
+    from agent.llm import Gateway, GatewayError
+    tries = []
+
+    class Slow:
+        name = "meterless"
+
+        def chat(self, *a, **k):
+            tries.append(1)
+            raise httpx.ReadTimeout("timed out")
+    gw = Gateway(providers=[Slow()], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r")
+    with pytest.raises(GatewayError):
+        gw.generate("hi", route="meterless/auto", purpose="t")
+    assert len(tries) == 1
+
+
+def test_a_row_whose_numbers_sit_on_their_own_line_is_read():
+    from agent.rhp import parse_statement
+    text = """RESTATED STATEMENT OF PROFIT AND LOSS
+(₹ in Million)
+Particulars June 30, 2026 March 31, 2026
+Revenue from operations 100.00 400.00
+e) Depreciation and amortisation
+expense
+33.69 126.01
+f) Other expenses 10.00 40.00
+"""
+    st = parse_statement(text, "pl", 91)
+    assert st.values["depreciation"] == [3.369, 12.601]
+
+
+def test_a_printed_tax_line_closes_a_loss_year():
+    from agent.verify import check_pl
+    ran, failed = check_pl({"pbt": [-0.29], "tax": [-0.17], "pat": [-0.12]}, 0)
+    assert ran == ["PAT = PBT - tax"] and not failed
+
+
+def test_cash_flows_that_close_on_the_printed_net_change_verify():
+    from agent.verify import check_cf
+    v = {"cfo": [8.035], "cfi": [-3.597], "cff": [-2.621], "net_change": [1.817],
+         "opening_cash": [3.865], "closing_cash": [4.682]}
+    assert check_cf(v, 0)[1] == []
+
+
+def test_concentration_is_read_from_risk_factors_and_self_checking_tables():
+    from agent.extract import top_shares
+    risk = "We derived 73.54% and 71.33%, 67.44% and 67.43% of our revenue from our top ten customers for the periods."
+    table = """Particulars % of revenue from operations (%)
+Largest
+Customer 792.88 19.97 2,584.60 20.40
+Top 5
+Customers 2,096.83 52.81 7,019.20 55.41
+Top 10
+Customers 2,920.12 73.54 9,036.03 71.33
+"""
+    got = {r["field"]: (r["value"], r["verified"]) for r in top_shares([risk, table])}
+    assert got == {"biz.top1_customers_pct": (19.97, True), "biz.top5_customers_pct": (52.81, True),
+                   "biz.top10_customers_pct": (73.54, True)}
+
+
+def test_out_of_order_concentration_shares_are_not_trusted():
+    from agent.extract import top_shares
+    pages = ["Top 5 suppliers accounted for 26.64% of purchases. Top 10 suppliers accounted for 5.96% of purchases."] * 2
+    assert not any(r["verified"] for r in top_shares(pages))

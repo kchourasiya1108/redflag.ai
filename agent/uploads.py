@@ -258,6 +258,12 @@ def _prefill(cfg: Settings, record: dict, **sources) -> None:
                            cfg.cache / "pages" / f"{record['sha256']}.json")
         record["prefilled"], record["provenance"], record["prefill_notes"] = prefill.prefill(
             cfg, record, pages, **sources)
+        _apply(record)
+        if sources.get("fetcher") is not None and not record.get("drhp", {}).get("facts"):
+            try:        # the draft is only for F12; a site being down never blocks the upload
+                record["drhp"] = prefill.draft_prospectus(cfg, record, sources["fetcher"])
+            except Exception as e:
+                record["drhp"] = {"note": f"draft lookup failed: {type(e).__name__}"}
     else:
         record["prefilled"], record["provenance"], record["prefill_notes"] = {}, {}, []
     _apply(record)
@@ -424,4 +430,5 @@ def local_rows(record: dict, port, cfg: Settings | None = None) -> dict[str, lis
             "ipo_issue": [{k: record["detected"].get(k) for k in ("issue_shares", "fresh_shares",
                                                                    "ofs_shares")}]
             if record["detected"].get("issue_shares") else [],
-            "ipo_people": [{k: p[k] for k in ("person_key", "name", "role")} for p in people or []]}
+            "ipo_people": [{k: p[k] for k in ("person_key", "name", "role")} for p in people or []],
+            "ipo_drhp_facts": (record.get("drhp") or {}).get("facts") or []}

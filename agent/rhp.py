@@ -213,12 +213,19 @@ def parse_statement(text: str, kind: str, page: int) -> Statement | None:
     return st if st.values or st.totals else None
 
 
+def _numbers_only(line: str) -> bool:
+    return bool(_NUMBER.search(line)) and not re.sub(r"[\s(),.\-–]|--", "", _NUMBER.sub("", line))
+
+
 def _join_wrapped(lines: list[str]) -> list[str]:
-    """Join a label that wrapped onto the next line, so it meets its numbers."""
+    """Join a label that wrapped onto the next line, so it meets its numbers; a row
+    whose numbers sit on a line of their own ("Depreciation and amortisation" /
+    "expense" / "33.69 126.01 ...") joins its label too."""
     out: list[str] = []
     for line in (raw.strip() for raw in lines):
         if (out and line and not _NUMBER.search(out[-1])
-                and (line[0].islower() or out[-1].lower().endswith(("&", " and", " of", ",", "/")))):
+                and (line[0].islower() or _numbers_only(line)
+                     or out[-1].lower().endswith(("&", " and", " of", ",", "/")))):
             out[-1] += " " + line
         else:
             out.append(line)

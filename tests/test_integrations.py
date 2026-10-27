@@ -336,7 +336,8 @@ def test_roles_resolve_to_pinned_models_and_reasoning_is_stripped(tmp_path):
     assert strip_reasoning("thinking...</think>\n{\"a\": 1}") == '{"a": 1}'
     assert strip_reasoning("<think>x</think>ok") == "ok"
     assert strip_reasoning("plain") == "plain"
-    assert routes_from_env({}) == {"extract": "meterless/fast", "reason": "meterless/deep"}
+    assert routes_from_env({}) == {"extract": "meterless/fast", "reason": "meterless/deep",
+                                   "backup": "nvidia/nemotron-3.5-bolt-e4b"}
 
     seen = []
     gw = _gateway(tmp_path, [_provider("meterless", ["plan</think>done"], seen)])
