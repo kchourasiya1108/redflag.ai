@@ -1,0 +1,200 @@
+{
+  "run_id": "example-3",
+  "status": "success",
+  "output": {
+    "ipo": {
+      "ipo_id": "BSE-2024-544310",
+      "company": "YASH HIGHVOLTAGE LIMITED",
+      "symbol": "544310",
+      "exchange": "BSE SME",
+      "open_date": "2024-12-12",
+      "issue_price": "146.0",
+      "banker_raw": "INDORIENT FINANCIAL SERVICES LIMITED",
+      "rhp_url": "https://www.bsesme.com/download/313881/SME_IPO%20Open/01.%20RHP_Yash%20Highvoltage%20Limited_20241209231911.pdf"
+    },
+    "as_of": "2024-12-12",
+    "rating": "LOW",
+    "p_adverse": 0.0262,
+    "model_version": "v2-banker-watchlist-rhp",
+    "depth": "LIGHT",
+    "reasons": [
+      {
+        "flag": "F5",
+        "title": "Customer/supplier concentration",
+        "severity": "HIGH",
+        "text": "Top 10 customers 84.0%; top 3 suppliers 70.2%; top 5 suppliers 75.0%. The top 3 suppliers alone account for 70.2% of purchases.",
+        "evidence": [
+          "rhp:p40",
+          "rhp:p42"
+        ],
+        "confidence": 0.7
+      },
+      {
+        "flag": "F19",
+        "title": "F19",
+        "severity": "ELEVATED",
+        "text": "100% of the issue is an offer for sale by existing shareholders: that money goes to the sellers, not the company.",
+        "evidence": [
+          "zq:2652f720cedaaa28"
+        ],
+        "confidence": 0.8
+      }
+    ],
+    "skeptic_notes": [],
+    "cleared_checks": [
+      {
+        "flag": "F1",
+        "title": "Paper profits",
+        "text": "FY24: cash from operations \u20b910.27 cr against profit after tax \u20b912.06 cr (CFO/PAT 0.85).",
+        "evidence": [
+          "rhp:p74",
+          "rhp:p73"
+        ]
+      },
+      {
+        "flag": "F10",
+        "title": "Lead manager track record",
+        "text": "INDORIENT FINANCIAL SERVICES LIMITED: 5 earlier SME IPOs with a known 6-month outcome before 2024-12-12; adjusted share that ended badly 0.04 against an average of 0.07.",
+        "evidence": [
+          "zq:bf20d4954265ead4"
+        ]
+      },
+      {
+        "flag": "F11",
+        "title": "Watchlist link",
+        "text": "No party is linked to a SEBI order dated before 2024-12-12 (directly or through a lead manager's earlier issue).",
+        "evidence": [
+          "zq:61ed02c0afd2b335"
+        ]
+      },
+      {
+        "flag": "F12",
+        "title": "Drift between drafts",
+        "text": "16 restated figures compared between the draft and the final prospectus. They match: no figure moved by 3% or more.",
+        "evidence": [
+          "rhp:p73",
+          "zq:a088605647a7bf42"
+        ]
+      },
+      {
+        "flag": "F2",
+        "title": "Profit spike before the IPO",
+        "text": "Profit after tax FY24 \u20b912.06 cr against an average of \u20b910.07 cr in FY23-FY22 (1.2x).",
+        "evidence": [
+          "rhp:p73"
+        ]
+      },
+      {
+        "flag": "F3",
+        "title": "Eligibility gaming",
+        "text": "EBITDA by year: FY24 \u20b920.79 cr, FY23 \u20b919.41 cr, FY22 \u20b914.83 cr; not clustered at the \u20b91 cr floor.",
+        "evidence": [
+          "rhp:p73"
+        ]
+      },
+      {
+        "flag": "F7",
+        "title": "Auditor risk",
+        "text": "Statutory auditor Shah Mehta & Bakshi: 0 earlier SME IPOs with a known outcome, adjusted share that ended badly 0.07.",
+        "evidence": [
+          "zq:4f53cda18c2baa0c",
+          "rhp:p77"
+        ]
+      },
+      {
+        "flag": "F8",
+        "title": "Overvalued vs peers",
+        "text": "Issue P/E 26.8 against a median of 194.2 for the listed peers the RHP names (Crompton Greaves Power and Industrial Solutions Limited, Hitachi Energy India Limited, as printed in the RHP): 0.1x.",
+        "evidence": [
+          "rhp:p122"
+        ]
+      }
+    ],
+    "questions": [],
+    "not_checked": [
+      "F13 anchor investors: no anchor allocation report was found for this issue",
+      "F13 market maker: the market maker has only 3 earlier SME IPOs with known results, too few to judge",
+      "F14 credit rating actions: the prospectus mentions no credit rating",
+      "F4 insider discount: no recorded reply for 4f34d4484a94780be4f4b3beb7861d187977d88655a27c17cf31a64ad4e4ca17 in sample mode",
+      "F6 related parties: a quick screen does not read this part of the prospectus",
+      "F9 use of money: a quick screen does not read this part of the prospectus",
+      "Skeptic on F19: not reviewed: the Skeptic argues at most 1 flag(s) per run at LIGHT depth",
+      "Skeptic on F5: model unavailable: ReplayMiss"
+    ],
+    "data_source": "sample (mock-sqlite)",
+    "disclaimer": "RedFlag gives a risk rating with evidence, not investment advice. It never says apply, avoid, buy or sell. Links to regulatory orders mean an entity was named in that order, not that this company did anything wrong.",
+    "summary": null
+  },
+  "agents": [
+    {
+      "name": "Intake",
+      "role": "Identifies the IPO and fixes as_of to its bid opening date",
+      "uses_llm": false
+    },
+    {
+      "name": "Names",
+      "role": "Records the issuer, lead managers, auditor, market maker and registrar",
+      "uses_llm": false
+    },
+    {
+      "name": "BankerTrackRecord",
+      "role": "Looks up the lead managers' earlier SME IPO outcomes known before as_of, through Zetaris, and computes the shrunk crash rate",
+      "uses_llm": false
+    },
+    {
+      "name": "Watchlist",
+      "role": "Matches every named party against SEBI orders dated before as_of, directly and through one other entity",
+      "uses_llm": false
+    },
+    {
+      "name": "Planner",
+      "role": "Chooses LIGHT, STANDARD or FORENSIC depth and escalates mid-run",
+      "uses_llm": false
+    },
+    {
+      "name": "Extractor",
+      "role": "Reads the restated financials from the RHP: a deterministic table pass, then Nemotron mapping rows to fields when the numbers do not verify",
+      "uses_llm": true
+    },
+    {
+      "name": "Specialists",
+      "role": "Computes F1-F3 and F5 (paper profits, profit spike, eligibility gaming, customer concentration) in code; F7 auditor risk from the archive",
+      "uses_llm": false
+    },
+    {
+      "name": "NarrativeReader",
+      "role": "Reads the share capital history, peer comparison, objects of the issue and related-party transactions page by page with the Meterless Markovian engine (Nemotron), then computes F4, F8, F9 and F6 in code",
+      "uses_llm": true
+    },
+    {
+      "name": "Skeptic",
+      "role": "Argues both sides of each ELEVATED or HIGH flag with Nemotron, citing RHP pages; applies the corroboration rule to HIGH flags",
+      "uses_llm": true
+    },
+    {
+      "name": "Scorer",
+      "role": "Applies the backtested, calibrated model to compute_features (no LLM)",
+      "uses_llm": false
+    },
+    {
+      "name": "Evaluator",
+      "role": "Checks coverage; sends gaps back to the Planner at most twice, else reports",
+      "uses_llm": false
+    },
+    {
+      "name": "CitationVerifier",
+      "role": "Re-checks every cited page, query and order before the report is written",
+      "uses_llm": false
+    },
+    {
+      "name": "Reporter",
+      "role": "Writes the report card and case_file.json from the Case File",
+      "uses_llm": false
+    }
+  ],
+  "trace_id": "trace-example-3",
+  "log_file": "logs/trace-example-3.jsonl",
+  "case_file": "output/example-3/case_file.json",
+  "report": "output/example-3/report.md",
+  "execution_time_seconds": 1.74
+}

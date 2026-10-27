@@ -1,0 +1,200 @@
+{
+  "run_id": "example-2",
+  "status": "success",
+  "output": {
+    "ipo": {
+      "ipo_id": "BSE-2024-544168",
+      "company": "VARYAA CREATIONS LIMITED",
+      "symbol": "544168",
+      "exchange": "BSE SME",
+      "open_date": "2024-04-22",
+      "issue_price": "150.0",
+      "banker_raw": "INVENTURE MERCHANT BANKER SERVICES PRIVATE LIMITED",
+      "rhp_url": "https://www.bsesme.com/download/345104/SME_IPO%20Open/Varyaa%20Creation%20Limited_20240417155644.pdf"
+    },
+    "as_of": "2024-04-22",
+    "rating": "HIGH",
+    "p_adverse": 0.4845,
+    "model_version": "v2-banker-watchlist-rhp",
+    "depth": "FORENSIC",
+    "reasons": [
+      {
+        "flag": "F11",
+        "title": "Watchlist link",
+        "severity": "HIGH",
+        "text": "INVENTURE MERCHANT BANKER SERVICES PVT. LTD. (lead manager) is named in SEBI order sebi-45821 dated 2020-01-28, before the bid date. Being named in an order is not a finding against this company.",
+        "evidence": [
+          "sebi:sebi-45821",
+          "sebi:sebi-79006",
+          "zq:760af653f133522a"
+        ],
+        "confidence": 0.9
+      },
+      {
+        "flag": "F2",
+        "title": "Profit spike before the IPO",
+        "severity": "HIGH",
+        "text": "Profit after tax FY23 \u20b90.79 cr against an average of \u20b90.22 cr in FY22-FY21 (3.5x).",
+        "evidence": [
+          "rhp:p42"
+        ],
+        "confidence": 0.7
+      },
+      {
+        "flag": "F5",
+        "title": "Customer/supplier concentration",
+        "severity": "HIGH",
+        "text": "Top 10 customers 99.0%; top 10 suppliers 93.6%. The top 10 customers alone account for 99.0% of revenue.",
+        "evidence": [
+          "rhp:p26",
+          "rhp:p27"
+        ],
+        "confidence": 0.7
+      }
+    ],
+    "skeptic_notes": [],
+    "cleared_checks": [
+      {
+        "flag": "F1",
+        "title": "Paper profits",
+        "text": "FY23: cash from operations \u20b93.81 cr against profit after tax \u20b90.79 cr (CFO/PAT 4.83).",
+        "evidence": [
+          "rhp:p42",
+          "rhp:p42"
+        ]
+      },
+      {
+        "flag": "F12",
+        "title": "Drift between drafts",
+        "text": "9 restated figures compared between the draft and the final prospectus. They match: no figure moved by 3% or more.",
+        "evidence": [
+          "rhp:p42",
+          "zq:12039df58b609112"
+        ]
+      },
+      {
+        "flag": "F19",
+        "title": "F19",
+        "text": "The whole issue is new shares: none of the money goes to selling shareholders.",
+        "evidence": [
+          "zq:53bc9f5b79fdf8be"
+        ]
+      },
+      {
+        "flag": "F3",
+        "title": "Eligibility gaming",
+        "text": "EBITDA by year: FY23 \u20b90.98 cr, FY22 \u20b90.62 cr, FY21 \u20b9-0.05 cr; not clustered at the \u20b91 cr floor.",
+        "evidence": [
+          "rhp:p42"
+        ]
+      },
+      {
+        "flag": "F7",
+        "title": "Auditor risk",
+        "text": "Statutory auditor N B T and Co: 2 earlier SME IPOs with a known outcome, adjusted share that ended badly 0.04.",
+        "evidence": [
+          "zq:88f5157e828db690",
+          "rhp:p5"
+        ]
+      },
+      {
+        "flag": "F8",
+        "title": "Overvalued vs peers",
+        "text": "Issue P/E 2.9 against a median of 9.8 for the listed peers the RHP names (PNGS Gargi Fashion Jewellery Ltd, Ashapuri Gold Ornament Ltd, as printed in the RHP): 0.3x.",
+        "evidence": [
+          "rhp:p69"
+        ]
+      }
+    ],
+    "questions": [
+      "The lead manager, INVENTURE MERCHANT BANKER SERVICES PRIVATE LIMITED, has only 2 earlier SME IPOs whose results after six months are known. How have the IPOs it managed performed?"
+    ],
+    "not_checked": [
+      "F10 banker track record: the lead manager has only 2 earlier SME IPOs with known results, too few to judge",
+      "F13 anchor investors: no anchor allocation report was found for this issue",
+      "F13 market maker: the market maker has only 2 earlier SME IPOs with known results, too few to judge",
+      "F14 credit rating actions: the prospectus mentions no credit rating",
+      "F4 insider discount: no recorded reply for 8b66df77313faf6bb5a98acbaecb57bbed10640f7498fbee479098e774a7af07 in sample mode",
+      "F6 related parties: no recorded reply for 6a8e4c9534f84e02d79f559b44b747636743647209d71e0f877ab750f6479517 in sample mode",
+      "F9 use of money: no recorded reply for 94893af93e6cca3242dff6dcc2edaff9ad7ef404aaef84036281054be0add0d0 in sample mode",
+      "Skeptic on F11: model unavailable: ReplayMiss",
+      "Skeptic on F2: model unavailable: ReplayMiss",
+      "Skeptic on F5: model unavailable: ReplayMiss"
+    ],
+    "data_source": "sample (mock-sqlite)",
+    "disclaimer": "RedFlag gives a risk rating with evidence, not investment advice. It never says apply, avoid, buy or sell. Links to regulatory orders mean an entity was named in that order, not that this company did anything wrong.",
+    "summary": null
+  },
+  "agents": [
+    {
+      "name": "Intake",
+      "role": "Identifies the IPO and fixes as_of to its bid opening date",
+      "uses_llm": false
+    },
+    {
+      "name": "Names",
+      "role": "Records the issuer, lead managers, auditor, market maker and registrar",
+      "uses_llm": false
+    },
+    {
+      "name": "BankerTrackRecord",
+      "role": "Looks up the lead managers' earlier SME IPO outcomes known before as_of, through Zetaris, and computes the shrunk crash rate",
+      "uses_llm": false
+    },
+    {
+      "name": "Watchlist",
+      "role": "Matches every named party against SEBI orders dated before as_of, directly and through one other entity",
+      "uses_llm": false
+    },
+    {
+      "name": "Planner",
+      "role": "Chooses LIGHT, STANDARD or FORENSIC depth and escalates mid-run",
+      "uses_llm": false
+    },
+    {
+      "name": "Extractor",
+      "role": "Reads the restated financials from the RHP: a deterministic table pass, then Nemotron mapping rows to fields when the numbers do not verify",
+      "uses_llm": true
+    },
+    {
+      "name": "Specialists",
+      "role": "Computes F1-F3 and F5 (paper profits, profit spike, eligibility gaming, customer concentration) in code; F7 auditor risk from the archive",
+      "uses_llm": false
+    },
+    {
+      "name": "NarrativeReader",
+      "role": "Reads the share capital history, peer comparison, objects of the issue and related-party transactions page by page with the Meterless Markovian engine (Nemotron), then computes F4, F8, F9 and F6 in code",
+      "uses_llm": true
+    },
+    {
+      "name": "Skeptic",
+      "role": "Argues both sides of each ELEVATED or HIGH flag with Nemotron, citing RHP pages; applies the corroboration rule to HIGH flags",
+      "uses_llm": true
+    },
+    {
+      "name": "Scorer",
+      "role": "Applies the backtested, calibrated model to compute_features (no LLM)",
+      "uses_llm": false
+    },
+    {
+      "name": "Evaluator",
+      "role": "Checks coverage; sends gaps back to the Planner at most twice, else reports",
+      "uses_llm": false
+    },
+    {
+      "name": "CitationVerifier",
+      "role": "Re-checks every cited page, query and order before the report is written",
+      "uses_llm": false
+    },
+    {
+      "name": "Reporter",
+      "role": "Writes the report card and case_file.json from the Case File",
+      "uses_llm": false
+    }
+  ],
+  "trace_id": "trace-example-2",
+  "log_file": "logs/trace-example-2.jsonl",
+  "case_file": "output/example-2/case_file.json",
+  "report": "output/example-2/report.md",
+  "execution_time_seconds": 1.54
+}

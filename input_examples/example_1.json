@@ -1,0 +1,5 @@
+{
+  "run_id": "example-1",
+  "input": {"ipo_id": "NSE-2023-SYNOPTICS"},
+  "options": {"sample_mode": true}
+}

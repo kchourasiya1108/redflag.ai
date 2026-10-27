@@ -1,0 +1,195 @@
+{
+  "version": "v2-banker-watchlist-rhp",
+  "features": [
+    "f_banker_crash",
+    "f_banker_low_history",
+    "f_banker_median_ret",
+    "f_watchlist_hit",
+    "f_watchlist_hop1",
+    "f_cfo_pat",
+    "f_cfo_neg_pat_pos",
+    "f_recv_rev_gap",
+    "f_profit_spike",
+    "f_ebitda_headroom_min",
+    "f_other_income_share",
+    "f_rev_growth"
+  ],
+  "columns": [
+    "f_banker_crash",
+    "f_banker_crash__missing",
+    "f_banker_low_history",
+    "f_banker_low_history__missing",
+    "f_banker_median_ret",
+    "f_banker_median_ret__missing",
+    "f_watchlist_hit",
+    "f_watchlist_hit__missing",
+    "f_watchlist_hop1",
+    "f_watchlist_hop1__missing",
+    "f_cfo_pat",
+    "f_cfo_pat__missing",
+    "f_cfo_neg_pat_pos",
+    "f_cfo_neg_pat_pos__missing",
+    "f_recv_rev_gap",
+    "f_recv_rev_gap__missing",
+    "f_profit_spike",
+    "f_profit_spike__missing",
+    "f_ebitda_headroom_min",
+    "f_ebitda_headroom_min__missing",
+    "f_other_income_share",
+    "f_other_income_share__missing",
+    "f_rev_growth",
+    "f_rev_growth__missing"
+  ],
+  "coef": [
+    0.146558,
+    -0.307576,
+    0.100021,
+    0.079696,
+    -0.573124,
+    0.115632,
+    0.547642,
+    0.0,
+    0.010399,
+    0.0,
+    0.017878,
+    0.219769,
+    -0.100815,
+    0.129551,
+    -0.291581,
+    0.057889,
+    -0.336204,
+    -0.079092,
+    -0.32005,
+    0.294782,
+    -0.166462,
+    -0.376301,
+    -0.716072,
+    -0.125323
+  ],
+  "intercept": -1.906979,
+  "fill": {
+    "f_banker_crash": 0.03527336860670194,
+    "f_banker_low_history": 1.0,
+    "f_banker_median_ret": 0.68,
+    "f_watchlist_hit": 0.0,
+    "f_watchlist_hop1": 0.0,
+    "f_cfo_pat": 0.5485568617810108,
+    "f_cfo_neg_pat_pos": 0.0,
+    "f_recv_rev_gap": -0.0614957562460583,
+    "f_profit_spike": 2.267577828397874,
+    "f_ebitda_headroom_min": 0.4701000000000002,
+    "f_other_income_share": 0.06206429327554577,
+    "f_rev_growth": 0.2301054203252657
+  },
+  "transform": {
+    "f_banker_crash": {
+      "clip": [
+        0.0,
+        0.2557346703956605
+      ],
+      "mean": 0.05101751473302072,
+      "sd": 0.04978252879358234
+    },
+    "f_banker_low_history": {
+      "clip": [
+        0.0,
+        1.0
+      ],
+      "mean": 0.6848958333333334,
+      "sd": 0.4645573493294151
+    },
+    "f_banker_median_ret": {
+      "clip": [
+        -0.23069610000000002,
+        2.422289
+      ],
+      "mean": 0.8083913648535564,
+      "sd": 0.7239087297055465
+    },
+    "f_watchlist_hit": {
+      "clip": [
+        0.0,
+        1.0
+      ],
+      "mean": 0.40487804878048783,
+      "sd": 0.4908684288036793
+    },
+    "f_watchlist_hop1": {
+      "clip": [
+        0.0,
+        6.0
+      ],
+      "mean": 1.0878048780487806,
+      "sd": 1.6768430154647125
+    },
+    "f_cfo_pat": {
+      "clip": [
+        -42.84370324617392,
+        1027.9935992578935
+      ],
+      "mean": 40.96434486672042,
+      "sd": 175.4444162321656
+    },
+    "f_cfo_neg_pat_pos": {
+      "clip": [
+        0.0,
+        1.0
+      ],
+      "mean": 0.3076923076923077,
+      "sd": 0.46153846153846156
+    },
+    "f_recv_rev_gap": {
+      "clip": [
+        -7.211542967591761,
+        8.520649011586388
+      ],
+      "mean": 0.12011149288545622,
+      "sd": 1.8135924154169654
+    },
+    "f_profit_spike": {
+      "clip": [
+        0.0013491724728044486,
+        79.7379167547944
+      ],
+      "mean": 4.917628274826873,
+      "sd": 10.796049228140006
+    },
+    "f_ebitda_headroom_min": {
+      "clip": [
+        -3.3381839999999996,
+        16.185871999999996
+      ],
+      "mean": 2.098193658031088,
+      "sd": 4.24900435250151
+    },
+    "f_other_income_share": {
+      "clip": [
+        -0.14910315374507227,
+        1.7133071230213155
+      ],
+      "mean": 0.17477475448080576,
+      "sd": 0.3003379519008194
+    },
+    "f_rev_growth": {
+      "clip": [
+        -0.9965639266539004,
+        38.689314653435815
+      ],
+      "mean": 0.7930440658966206,
+      "sd": 4.073801045399582
+    }
+  },
+  "bands": {
+    "low_below": 0.232,
+    "high_at": 0.4114
+  },
+  "calibration": "logistic regression, then a base-rate shift of +0.80 log-odds fitted on the validation years",
+  "trained_on": {
+    "train": 410,
+    "test": 218,
+    "train_from": "2022-12-13",
+    "train_to": "2024-12-12",
+    "test_from": "2025-06-26",
+    "test_to": "2026-04-06"
+  }
+}

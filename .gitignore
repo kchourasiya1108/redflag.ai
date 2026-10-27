@@ -218,3 +218,54 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# RedFlag data and run outputs (downloaded or generated; see docs/DESIGN.md)
+.idea/
+data/raw/
+data/cache/
+data/archive.db
+data/archive.db-*
+data/failures.csv
+data/memory.db
+data/backups/
+data/uploads/
+logs/*
+output/*
+data/publish/
+data/gates/*.tmp
+
+# Backup of the Linux-PC Zetaris settings
+.env.linux-pc
+
+# >>> submission (scripts/prepare_submission.sh) >>>
+# secrets: never commit a real .env or keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+# AI assistant and editor folders, AI-written docs, submission media
+.claude/
+.cursor/
+.vscode/
+.idea/
+CLAUDE.md
+AGENTS.md
+docs/DESIGN.md
+docs/SETUP.md
+submission/
+# offline training inputs (rebuilt by the pipeline, not needed to run)
+data/manual/
+data/review/
+data/backtest/
+data/model/*
+!data/model/scorer.json
+# the example runs' files that output_examples/*.json point to
+!logs/trace-example-*.jsonl
+!logs/example-*/
+logs/example-*/*
+!logs/example-*/*.jsonl
+!output/example-*/
+# <<< submission <<<

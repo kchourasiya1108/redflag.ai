@@ -1,0 +1,1456 @@
+{
+  "meta": {
+    "run_id": "example-2",
+    "ipo_id": "BSE-2024-544168",
+    "as_of": "2024-04-22",
+    "depth": "FORENSIC",
+    "depth_history": [
+      {
+        "from": null,
+        "to": "FORENSIC",
+        "reason": "confirmed watchlist link"
+      }
+    ],
+    "company": "VARYAA CREATIONS LIMITED",
+    "exchange": "BSE SME",
+    "issue_price": 150.0,
+    "sample_mode": true,
+    "data_source": "sample (mock-sqlite)"
+  },
+  "entities": [
+    {
+      "id": "ent_00c94a4853142278",
+      "type": "auditor",
+      "name": "N B T and Co",
+      "aliases": [
+        "N B T and Co"
+      ],
+      "source": "archive:auditor",
+      "agent": "Names"
+    },
+    {
+      "id": "ent_5ba38ab7f21b1367",
+      "type": "promoter",
+      "name": "Sarika Amit Naheta",
+      "aliases": [
+        "Sarika Amit Naheta"
+      ],
+      "source": "archive:ipo_people",
+      "agent": "Names"
+    },
+    {
+      "id": "ent_61f7c908171ab0f3",
+      "type": "registrar",
+      "name": "BIGSHARE SERVICES PVT. LTD.",
+      "aliases": [
+        "BIGSHARE SERVICES PVT. LTD."
+      ],
+      "source": "archive:registrar",
+      "agent": "Names"
+    },
+    {
+      "id": "ent_8cc145056903ee22",
+      "type": "banker",
+      "name": "INVENTURE MERCHANT BANKER SERVICES PVT. LTD.",
+      "aliases": [
+        "INVENTURE MERCHANT BANKER SERVICES PVT. LTD."
+      ],
+      "source": "archive:ipo_banker",
+      "agent": "Watchlist"
+    },
+    {
+      "id": "ent_8f64e673fa3ca964",
+      "type": "promoter",
+      "name": "Pooja Vineet Naheta",
+      "aliases": [
+        "Pooja Vineet Naheta"
+      ],
+      "source": "archive:ipo_people",
+      "agent": "Names"
+    },
+    {
+      "id": "ent_91e3a798bf763b67",
+      "type": "market_maker",
+      "name": "SVCM Securities Private Limited",
+      "aliases": [
+        "SVCM Securities Private Limited"
+      ],
+      "source": "archive:market_maker",
+      "agent": "Names"
+    },
+    {
+      "id": "sebi_order:sebi:sebi-45821",
+      "type": "sebi_order",
+      "name": "sebi-45821 Adjudication Order in respect of Inventure Merchant Banker Services Private Limi",
+      "aliases": [
+        "sebi-45821 Adjudication Order in respect of Inventure Merchant Banker Services Private Limi"
+      ],
+      "source": "sebi:sebi-45821",
+      "agent": "Watchlist"
+    },
+    {
+      "id": "sebi_order:sebi:sebi-79006",
+      "type": "sebi_order",
+      "name": "sebi-79006 Adjudication order in the matter of inspection of Inventure Merchant Banker Serv",
+      "aliases": [
+        "sebi-79006 Adjudication order in the matter of inspection of Inventure Merchant Banker Serv"
+      ],
+      "source": "sebi:sebi-79006",
+      "agent": "Watchlist"
+    }
+  ],
+  "edges": [
+    {
+      "src": "ent_5ba38ab7f21b1367",
+      "dst": "company:ipo:BSE-2024-544168",
+      "type": "promoter_of",
+      "source": "archive:ipo_people",
+      "agent": "Names"
+    },
+    {
+      "src": "ent_8cc145056903ee22",
+      "dst": "company:ipo:BSE-2024-544168",
+      "type": "lead_manager_of",
+      "source": "archive:ipo_banker",
+      "agent": "Names"
+    },
+    {
+      "src": "ent_91e3a798bf763b67",
+      "dst": "company:ipo:BSE-2024-544168",
+      "type": "market_maker_of",
+      "source": "archive:market_maker",
+      "agent": "Names"
+    },
+    {
+      "src": "ent_8f64e673fa3ca964",
+      "dst": "company:ipo:BSE-2024-544168",
+      "type": "promoter_of",
+      "source": "archive:ipo_people",
+      "agent": "Names"
+    },
+    {
+      "src": "ent_61f7c908171ab0f3",
+      "dst": "company:ipo:BSE-2024-544168",
+      "type": "registrar_of",
+      "source": "archive:registrar",
+      "agent": "Names"
+    },
+    {
+      "src": "ent_00c94a4853142278",
+      "dst": "company:ipo:BSE-2024-544168",
+      "type": "auditor_of",
+      "source": "archive:auditor",
+      "agent": "Names"
+    },
+    {
+      "src": "ent_8cc145056903ee22",
+      "dst": "sebi_order:sebi:sebi-79006",
+      "type": "named_in_order",
+      "source": "sebi:sebi-79006",
+      "agent": "Watchlist"
+    }
+  ],
+  "facts": [
+    {
+      "field": "biz.top10_customers_pct",
+      "fy": "",
+      "value": 98.98,
+      "unit": "%",
+      "page": 27,
+      "verified": true,
+      "method": "text_pattern",
+      "source": "rhp:p27",
+      "agent": "Extractor"
+    },
+    {
+      "field": "biz.top10_suppliers_pct",
+      "fy": "",
+      "value": 93.6,
+      "unit": "%",
+      "page": 26,
+      "verified": true,
+      "method": "text_pattern",
+      "source": "rhp:p26",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.inventories",
+      "fy": "FY21",
+      "value": 1.5867,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.inventories",
+      "fy": "FY22",
+      "value": 0.8942,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.inventories",
+      "fy": "FY23",
+      "value": 15.7224,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.inventories",
+      "fy": "S2023-12-31",
+      "value": 7.9089,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.receivables",
+      "fy": "FY21",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.receivables",
+      "fy": "FY22",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.receivables",
+      "fy": "FY23",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.receivables",
+      "fy": "S2023-12-31",
+      "value": 2.1985,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.reserves",
+      "fy": "FY21",
+      "value": -0.9246,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.reserves",
+      "fy": "FY22",
+      "value": -0.3447,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.reserves",
+      "fy": "FY23",
+      "value": 0.4445,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.reserves",
+      "fy": "S2023-12-31",
+      "value": 0.6556,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.share_capital",
+      "fy": "FY21",
+      "value": 0.15,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.share_capital",
+      "fy": "FY22",
+      "value": 0.15,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.share_capital",
+      "fy": "FY23",
+      "value": 0.15,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.share_capital",
+      "fy": "S2023-12-31",
+      "value": 3.45,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.st_borrowings",
+      "fy": "FY21",
+      "value": 2.8382,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.st_borrowings",
+      "fy": "FY22",
+      "value": 0.4481,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.st_borrowings",
+      "fy": "FY23",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "bs.st_borrowings",
+      "fy": "S2023-12-31",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 41,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p41",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cff",
+      "fy": "FY21",
+      "value": -0.1048,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cff",
+      "fy": "FY22",
+      "value": -0.0972,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cff",
+      "fy": "FY23",
+      "value": -0.0247,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cff",
+      "fy": "S2023-12-31",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfi",
+      "fy": "FY21",
+      "value": 0.0301,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfi",
+      "fy": "FY22",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfi",
+      "fy": "FY23",
+      "value": -0.0012,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfi",
+      "fy": "S2023-12-31",
+      "value": -0.0215,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfo",
+      "fy": "FY21",
+      "value": 0.0898,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfo",
+      "fy": "FY22",
+      "value": 0.0941,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfo",
+      "fy": "FY23",
+      "value": 3.8112,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.cfo",
+      "fy": "S2023-12-31",
+      "value": -3.7107,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.closing_cash",
+      "fy": "FY21",
+      "value": 0.0154,
+      "unit": "cr",
+      "page": 42,
+      "verified": false,
+      "method": "text_table:not_on_page",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.closing_cash",
+      "fy": "FY22",
+      "value": 0.0123,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.closing_cash",
+      "fy": "FY23",
+      "value": 3.7977,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.closing_cash",
+      "fy": "S2023-12-31",
+      "value": 0.0654,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.net_change",
+      "fy": "FY21",
+      "value": 0.0151,
+      "unit": "cr",
+      "page": 42,
+      "verified": false,
+      "method": "text_table:not_on_page",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.net_change",
+      "fy": "FY22",
+      "value": -0.0031,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.net_change",
+      "fy": "FY23",
+      "value": 3.7853,
+      "unit": "cr",
+      "page": 42,
+      "verified": false,
+      "method": "text_table:not_on_page",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.net_change",
+      "fy": "S2023-12-31",
+      "value": -3.7322,
+      "unit": "cr",
+      "page": 42,
+      "verified": false,
+      "method": "text_table:not_on_page",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.opening_cash",
+      "fy": "FY21",
+      "value": 0.0003,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.opening_cash",
+      "fy": "FY22",
+      "value": 0.0154,
+      "unit": "cr",
+      "page": 42,
+      "verified": false,
+      "method": "text_table:not_on_page",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.opening_cash",
+      "fy": "FY23",
+      "value": 0.0123,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "cf.opening_cash",
+      "fy": "S2023-12-31",
+      "value": 3.7977,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.depreciation",
+      "fy": "FY21",
+      "value": 0.0018,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.depreciation",
+      "fy": "FY22",
+      "value": 0.0012,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.depreciation",
+      "fy": "FY23",
+      "value": 0.0008,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.depreciation",
+      "fy": "S2023-12-31",
+      "value": 0.0025,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.employee",
+      "fy": "FY21",
+      "value": 0.0812,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.employee",
+      "fy": "FY22",
+      "value": 0.07,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.employee",
+      "fy": "FY23",
+      "value": 0.0351,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.employee",
+      "fy": "S2023-12-31",
+      "value": 0.1338,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.finance_cost",
+      "fy": "FY21",
+      "value": 0.1048,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.finance_cost",
+      "fy": "FY22",
+      "value": 0.0972,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.finance_cost",
+      "fy": "FY23",
+      "value": 0.0247,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.finance_cost",
+      "fy": "S2023-12-31",
+      "value": 0.0,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.other_income",
+      "fy": "FY21",
+      "value": 0.0301,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.other_income",
+      "fy": "FY22",
+      "value": 0.0599,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.other_income",
+      "fy": "FY23",
+      "value": 0.1532,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.other_income",
+      "fy": "S2023-12-31",
+      "value": 0.435,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pat",
+      "fy": "FY21",
+      "value": -0.1306,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pat",
+      "fy": "FY22",
+      "value": 0.5798,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pat",
+      "fy": "FY23",
+      "value": 0.7893,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pat",
+      "fy": "S2023-12-31",
+      "value": 3.5111,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pbt",
+      "fy": "FY21",
+      "value": -0.1306,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pbt",
+      "fy": "FY22",
+      "value": 0.5799,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pbt",
+      "fy": "FY23",
+      "value": 1.105,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.pbt",
+      "fy": "S2023-12-31",
+      "value": 4.6919,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.revenue",
+      "fy": "FY21",
+      "value": 0.0904,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.revenue",
+      "fy": "FY22",
+      "value": 2.4714,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.revenue",
+      "fy": "FY23",
+      "value": 5.227,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.revenue",
+      "fy": "S2023-12-31",
+      "value": 17.1899,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.tax",
+      "fy": "FY21",
+      "value": -0.0,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.tax",
+      "fy": "FY22",
+      "value": 0.0001,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.tax",
+      "fy": "FY23",
+      "value": 0.3157,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.tax",
+      "fy": "S2023-12-31",
+      "value": 1.1808,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_expenses",
+      "fy": "FY21",
+      "value": 0.2512,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_expenses",
+      "fy": "FY22",
+      "value": 1.9514,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_expenses",
+      "fy": "FY23",
+      "value": 4.2753,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_expenses",
+      "fy": "S2023-12-31",
+      "value": 12.933,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_income",
+      "fy": "FY21",
+      "value": 0.1205,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_income",
+      "fy": "FY22",
+      "value": 2.5313,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_income",
+      "fy": "FY23",
+      "value": 5.3803,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    },
+    {
+      "field": "pl.total_income",
+      "fy": "S2023-12-31",
+      "value": 17.6249,
+      "unit": "cr",
+      "page": 42,
+      "verified": true,
+      "method": "text_table",
+      "source": "rhp:p42",
+      "agent": "Extractor"
+    }
+  ],
+  "verification": [
+    {
+      "statement": "bs",
+      "fy": "FY21",
+      "passed": true,
+      "attempts": 1,
+      "detail": "assets = equity + liabilities"
+    },
+    {
+      "statement": "bs",
+      "fy": "FY22",
+      "passed": true,
+      "attempts": 1,
+      "detail": "assets = equity + liabilities"
+    },
+    {
+      "statement": "bs",
+      "fy": "FY23",
+      "passed": true,
+      "attempts": 1,
+      "detail": "assets = equity + liabilities"
+    },
+    {
+      "statement": "bs",
+      "fy": "S2023-12-31",
+      "passed": true,
+      "attempts": 1,
+      "detail": "assets = equity + liabilities"
+    },
+    {
+      "statement": "cf",
+      "fy": "FY21",
+      "passed": true,
+      "attempts": 1,
+      "detail": "CFO + CFI + CFF = change in cash"
+    },
+    {
+      "statement": "cf",
+      "fy": "FY22",
+      "passed": true,
+      "attempts": 1,
+      "detail": "CFO + CFI + CFF = change in cash"
+    },
+    {
+      "statement": "cf",
+      "fy": "FY23",
+      "passed": true,
+      "attempts": 1,
+      "detail": "CFO + CFI + CFF = change in cash"
+    },
+    {
+      "statement": "cf",
+      "fy": "S2023-12-31",
+      "passed": true,
+      "attempts": 1,
+      "detail": "CFO + CFI + CFF = change in cash"
+    },
+    {
+      "statement": "pl",
+      "fy": "FY21",
+      "passed": true,
+      "attempts": 1,
+      "detail": "total income = revenue + other income; PBT = total income - total expenses; PAT = PBT - tax"
+    },
+    {
+      "statement": "pl",
+      "fy": "FY22",
+      "passed": true,
+      "attempts": 1,
+      "detail": "total income = revenue + other income; PBT = total income - total expenses; PAT = PBT - tax"
+    },
+    {
+      "statement": "pl",
+      "fy": "FY23",
+      "passed": true,
+      "attempts": 1,
+      "detail": "total income = revenue + other income; PBT = total income - total expenses; PAT = PBT - tax"
+    },
+    {
+      "statement": "pl",
+      "fy": "S2023-12-31",
+      "passed": true,
+      "attempts": 1,
+      "detail": "total income = revenue + other income; PBT = total income - total expenses; PAT = PBT - tax"
+    }
+  ],
+  "flags": [
+    {
+      "id": "F1",
+      "severity": "LOW",
+      "value": {
+        "cfo_pat": 4.828582288103383,
+        "neg_cfo_years": [],
+        "recv_minus_rev_growth": null
+      },
+      "evidence": [
+        "rhp:p42",
+        "rhp:p42"
+      ],
+      "confidence": 0.7,
+      "text": "FY23: cash from operations \u20b93.81 cr against profit after tax \u20b90.79 cr (CFO/PAT 4.83).",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F11",
+      "severity": "HIGH",
+      "value": {
+        "links": 2,
+        "min_hop": 1
+      },
+      "evidence": [
+        "sebi:sebi-45821",
+        "sebi:sebi-79006",
+        "zq:760af653f133522a"
+      ],
+      "confidence": 0.9,
+      "text": "INVENTURE MERCHANT BANKER SERVICES PVT. LTD. (lead manager) is named in SEBI order sebi-45821 dated 2020-01-28, before the bid date. Being named in an order is not a finding against this company.",
+      "skeptic": null,
+      "agent": "Watchlist"
+    },
+    {
+      "id": "F12",
+      "severity": "LOW",
+      "value": {
+        "compared": 9,
+        "max_change": 0.0,
+        "field": "pl.revenue",
+        "fiscal_year": "FY23",
+        "drhp": 5.227,
+        "rhp": 5.227
+      },
+      "evidence": [
+        "rhp:p42",
+        "zq:12039df58b609112"
+      ],
+      "confidence": 0.7,
+      "text": "9 restated figures compared between the draft and the final prospectus. They match: no figure moved by 3% or more.",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F19",
+      "severity": "LOW",
+      "value": {
+        "ofs_share": 0.0,
+        "issue_shares": 1340000,
+        "ofs_shares": 0,
+        "cap": null
+      },
+      "evidence": [
+        "zq:53bc9f5b79fdf8be"
+      ],
+      "confidence": 0.8,
+      "text": "The whole issue is new shares: none of the money goes to selling shareholders.",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F2",
+      "severity": "HIGH",
+      "value": {
+        "spike": 3.5142475512021374,
+        "pat": {
+          "FY23": 0.7893,
+          "FY22": 0.5798,
+          "FY21": -0.1306
+        }
+      },
+      "evidence": [
+        "rhp:p42"
+      ],
+      "confidence": 0.7,
+      "text": "Profit after tax FY23 \u20b90.79 cr against an average of \u20b90.22 cr in FY22-FY21 (3.5x).",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F3",
+      "severity": "LOW",
+      "value": {
+        "ebitda": {
+          "FY23": 0.9772999999999998,
+          "FY22": 0.6184,
+          "FY21": -0.05409999999999999
+        },
+        "near_floor_years": []
+      },
+      "evidence": [
+        "rhp:p42"
+      ],
+      "confidence": 0.7,
+      "text": "EBITDA by year: FY23 \u20b90.98 cr, FY22 \u20b90.62 cr, FY21 \u20b9-0.05 cr; not clustered at the \u20b91 cr floor.",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F5",
+      "severity": "HIGH",
+      "value": {
+        "top10_customers_pct": 98.98,
+        "top10_suppliers_pct": 93.6
+      },
+      "evidence": [
+        "rhp:p26",
+        "rhp:p27"
+      ],
+      "confidence": 0.7,
+      "text": "Top 10 customers 99.0%; top 10 suppliers 93.6%. The top 10 customers alone account for 99.0% of revenue.",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F7",
+      "severity": "LOW",
+      "value": {
+        "auditor": "N B T and Co",
+        "changed_3y": false,
+        "crash_rate": 0.0379,
+        "n": 2
+      },
+      "evidence": [
+        "zq:88f5157e828db690",
+        "rhp:p5"
+      ],
+      "confidence": 0.5,
+      "text": "Statutory auditor N B T and Co: 2 earlier SME IPOs with a known outcome, adjusted share that ended badly 0.04.",
+      "skeptic": null,
+      "agent": "Specialists"
+    },
+    {
+      "id": "F8",
+      "severity": "LOW",
+      "value": {
+        "issue_pe": 2.85,
+        "peer_median_pe": 9.79,
+        "peers": [
+          {
+            "name": "PNGS Gargi Fashion Jewellery Ltd",
+            "pe": 9.44,
+            "eps": null,
+            "page": 69.0
+          },
+          {
+            "name": "Ashapuri Gold Ornament Ltd",
+            "pe": 10.14,
+            "eps": null,
+            "page": 69.0
+          }
+        ],
+        "premium": 0.29111338100102147,
+        "pages": [
+          69
+        ],
+        "repriced": 0,
+        "priced_on": null
+      },
+      "evidence": [
+        "rhp:p69"
+      ],
+      "confidence": 0.55,
+      "text": "Issue P/E 2.9 against a median of 9.8 for the listed peers the RHP names (PNGS Gargi Fashion Jewellery Ltd, Ashapuri Gold Ornament Ltd, as printed in the RHP): 0.3x.",
+      "skeptic": null,
+      "agent": "NarrativeReader"
+    }
+  ],
+  "open_questions": [
+    "The lead manager, INVENTURE MERCHANT BANKER SERVICES PRIVATE LIMITED, has only 2 earlier SME IPOs whose results after six months are known. How have the IPOs it managed performed?"
+  ],
+  "not_checked": [
+    {
+      "item": "F10 banker track record",
+      "reason": "the lead manager has only 2 earlier SME IPOs with known results, too few to judge"
+    },
+    {
+      "item": "F13 anchor investors",
+      "reason": "no anchor allocation report was found for this issue"
+    },
+    {
+      "item": "F13 market maker",
+      "reason": "the market maker has only 2 earlier SME IPOs with known results, too few to judge"
+    },
+    {
+      "item": "F14 credit rating actions",
+      "reason": "the prospectus mentions no credit rating"
+    },
+    {
+      "item": "F4 insider discount",
+      "reason": "no recorded reply for 8b66df77313faf6bb5a98acbaecb57bbed10640f7498fbee479098e774a7af07 in sample mode"
+    },
+    {
+      "item": "F6 related parties",
+      "reason": "no recorded reply for 6a8e4c9534f84e02d79f559b44b747636743647209d71e0f877ab750f6479517 in sample mode"
+    },
+    {
+      "item": "F9 use of money",
+      "reason": "no recorded reply for 94893af93e6cca3242dff6dcc2edaff9ad7ef404aaef84036281054be0add0d0 in sample mode"
+    },
+    {
+      "item": "Skeptic on F11",
+      "reason": "model unavailable: ReplayMiss"
+    },
+    {
+      "item": "Skeptic on F2",
+      "reason": "model unavailable: ReplayMiss"
+    },
+    {
+      "item": "Skeptic on F5",
+      "reason": "model unavailable: ReplayMiss"
+    }
+  ],
+  "merge_queue": [],
+  "score": {
+    "band": "HIGH",
+    "p_adverse": 0.4845,
+    "version": "v2-banker-watchlist-rhp",
+    "missing_core": [],
+    "features": {
+      "f_banker_crash": 0.03787878787878788,
+      "f_banker_n": 2.0,
+      "f_banker_low_history": 1.0,
+      "f_banker_median_ret": -0.14,
+      "f_watchlist_hit": 1.0,
+      "f_watchlist_hop1": 2.0,
+      "f_watchlist_pending": 0.0,
+      "f_auditor_changed": 0.0,
+      "f_auditor_crash": 0.03787878787878788,
+      "f_auditor_n": 2.0,
+      "f_mm_crash": 0.03787878787878788,
+      "f_mm_n": 2.0,
+      "f_ofs_share": 0.0,
+      "f_anchor_bad_rate": null,
+      "f_anchor_n": null,
+      "f_cfo_pat": 4.828582288103383,
+      "f_cfo_neg_pat_pos": 0.0,
+      "f_recv_rev_gap": null,
+      "f_profit_spike": 3.5142475512021374,
+      "f_ebitda_headroom_min": -1.0541,
+      "f_other_income_share": 0.1386425339366516,
+      "f_rev_growth": 1.1149955490814922,
+      "f_top10_customers": 98.98,
+      "f_top5_customers": null,
+      "f_top10_suppliers": 93.6,
+      "f_ebitda_margin": 0.1869714941649129,
+      "f_pat_margin": 0.15100440022957717,
+      "f_debt_equity": 0.0,
+      "f_interest_cover": 39.56680161943319,
+      "f_ronw": 1.3276703111858703,
+      "f_pat_growth": 0.36133149361848926,
+      "f_recv_days": 0.0,
+      "f_recv_days_change": 0.0
+    }
+  },
+  "writes": 138,
+  "trace_ref": "logs/trace-example-2.jsonl"
+}

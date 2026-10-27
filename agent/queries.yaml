@@ -1,0 +1,351 @@
+# Named SQL templates: the only way agents and compute_features read data.
+# Sources are Zetaris names (RF_ARCHIVE, RF_LIVE, RF_PRICES); MockZetaris
+# serves the same names from SQLite, so this exact SQL runs in both modes.
+#
+# Every template either declares a time_rule on a returned column, which the
+# Leakage Guard enforces against the run's as_of, or is marked time_free
+# (reference data that is known at the bid date). See docs/DESIGN.md.
+
+ipo_bankers:
+  time_free: true      # lead managers are printed on the RHP cover
+  params: {ipo_id: id}
+  columns: {banker_id: int, canonical_name: str, position: int}
+  max_rows: 20
+  sql: >
+    SELECT b.banker_id, b.canonical_name, ib.position
+    FROM RF_ARCHIVE.ipo_banker ib
+    JOIN RF_ARCHIVE.bankers b ON b.banker_id = ib.banker_id
+    WHERE ib.ipo_id = :ipo_id
+    ORDER BY ib.position
+
+banker_track_record:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {banker_id: int, as_of: date}
+  columns: {ipo_id: str, ret_6m: float, crashed: int, suspended: int,
+            sebi_action: int, sebi_action_date: date, outcome_known_on: date}
+  max_rows: 2000
+  sql: >
+    SELECT l.ipo_id, l.ret_6m, l.crashed, l.suspended, l.sebi_action,
+           l.sebi_action_date, l.outcome_known_on
+    FROM RF_ARCHIVE.ipo_banker ib
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = ib.ipo_id
+    WHERE ib.banker_id = :banker_id
+      AND l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
+
+outcomes_known_before:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {as_of: date}
+  columns: {ipo_id: str, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 20000
+  sql: >
+    SELECT l.ipo_id, l.crashed, l.suspended, l.sebi_action,
+           l.sebi_action_date, l.outcome_known_on
+    FROM RF_ARCHIVE.labels l
+    WHERE l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
+
+labelled_ipos:
+  time_free: true      # offline training only: the list of IPOs to backtest
+  offline_only: true
+  params: {}
+  columns: {ipo_id: str, open_date: date, adverse: int, crashed: int,
+            ret_6m: float}
+  max_rows: 20000
+  sql: >
+    SELECT i.ipo_id, i.open_date, l.adverse, l.crashed, l.ret_6m
+    FROM RF_ARCHIVE.ipos i
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = i.ipo_id
+    ORDER BY i.open_date
+
+ipo_meta:
+  time_free: true      # cover-page facts of the IPO being judged
+  params: {ipo_id: id}
+  columns: {ipo_id: str, company: str, symbol: str, exchange: str, open_date: date,
+            issue_price: float, banker_raw: str, rhp_url: str}
+  max_rows: 1
+  sql: >
+    SELECT ipo_id, company, symbol, exchange, open_date, issue_price, banker_raw, rhp_url
+    FROM RF_ARCHIVE.ipos
+    WHERE ipo_id = :ipo_id
+
+ipo_parties:
+  time_free: true      # auditor, market maker and registrar are printed in the RHP
+  params: {ipo_id: id}
+  columns: {role: str, party_id: int, canonical_name: str, raw_name: str}
+  max_rows: 20
+  sql: >
+    SELECT 'auditor' AS role, a.auditor_id AS party_id, a.canonical_name, ia.auditor_raw AS raw_name
+    FROM RF_ARCHIVE.ipo_auditor ia
+    JOIN RF_ARCHIVE.auditors a ON a.auditor_id = ia.auditor_id
+    WHERE ia.ipo_id = :ipo_id
+    UNION ALL
+    SELECT 'market_maker' AS role, m.mm_id AS party_id, m.canonical_name, m.canonical_name AS raw_name
+    FROM RF_ARCHIVE.ipo_market_maker im
+    JOIN RF_ARCHIVE.market_makers m ON m.mm_id = im.mm_id
+    WHERE im.ipo_id = :ipo_id
+    UNION ALL
+    SELECT 'registrar' AS role, r.registrar_id AS party_id, r.canonical_name, r.canonical_name AS raw_name
+    FROM RF_ARCHIVE.ipos i
+    JOIN RF_ARCHIVE.registrars r ON r.registrar_id = i.registrar_id
+    WHERE i.ipo_id = :ipo_id
+    ORDER BY role, party_id
+
+sebi_named_before:
+  # Every entity named in a SEBI order dated before as_of: the archive's
+  # orders plus RF_LIVE, where fresh fetchers put orders issued since the
+  # archive was built (empty until those fetchers run).
+  time_rule: {column: order_date, op: "<"}
+  params: {as_of: date}
+  columns: {order_id: str, order_date: date, order_type: str, title: str, url: str,
+            entity_name: str, entity_role: str, entity_id: str, reviewed: int}
+  max_rows: 20000
+  sql: >
+    SELECT o.order_id, o.order_date, o.order_type, o.title, o.url,
+           e.entity_name, e.entity_role, e.entity_id, e.reviewed
+    FROM RF_ARCHIVE.sebi_order_entity e
+    JOIN RF_ARCHIVE.sebi_orders o ON o.order_id = e.order_id
+    WHERE o.order_date < :as_of
+    UNION ALL
+    SELECT o.order_id, o.order_date, o.order_type, o.title, o.url,
+           e.entity_name, e.entity_role, e.entity_id, e.reviewed
+    FROM RF_LIVE.sebi_order_entity e
+    JOIN RF_LIVE.sebi_orders o ON o.order_id = e.order_id
+    WHERE o.order_date < :as_of
+    ORDER BY 2, 1, 6          -- order_date, order_id, entity_name (by position: a UNION)
+
+banker_past_ipos:
+  # The banker's earlier issues that had opened before as_of: the second hop
+  # of the watchlist (banker -> lead_manager_of -> company -> named_in_order).
+  time_rule: {column: open_date, op: "<"}
+  params: {banker_id: int, as_of: date}
+  columns: {ipo_id: str, company: str, open_date: date}
+  max_rows: 2000
+  sql: >
+    SELECT i.ipo_id, i.company, i.open_date
+    FROM RF_ARCHIVE.ipo_banker ib
+    JOIN RF_ARCHIVE.ipos i ON i.ipo_id = ib.ipo_id
+    WHERE ib.banker_id = :banker_id
+      AND i.open_date < :as_of
+    ORDER BY i.open_date, i.ipo_id
+
+entity_edges_before:
+  # Director/promoter/group links taken from past RHPs, valid before as_of.
+  time_rule: {column: valid_from, op: "<"}
+  params: {as_of: date}
+  columns: {src_id: str, dst_id: str, type: str, source_ref: str, valid_from: date}
+  max_rows: 50000
+  sql: >
+    SELECT src_id, dst_id, type, source_ref, valid_from
+    FROM RF_ARCHIVE.entity_edge
+    WHERE valid_from < :as_of
+    ORDER BY src_id, dst_id, type
+
+ipo_facts:
+  time_free: true      # numbers printed in the IPO's own RHP, published before as_of
+  params: {ipo_id: id}
+  columns: {field: str, fiscal_year: str, value: float, unit: str, page: int,
+            verified: int, method: str}
+  max_rows: 2000
+  sql: >
+    SELECT field, fiscal_year, value, unit, page, verified, method
+    FROM RF_ARCHIVE.facts
+    WHERE ipo_id = :ipo_id
+    ORDER BY field, fiscal_year
+
+ipo_rhp_doc:
+  time_free: true      # the RHP is published before the bid opens
+  params: {ipo_id: id}
+  columns: {doc_type: str, sha256: str, pages: int, text_pages: int, status: str, url: str}
+  max_rows: 5
+  sql: >
+    SELECT doc_type, sha256, pages, text_pages, status, url
+    FROM RF_ARCHIVE.docs
+    WHERE ipo_id = :ipo_id
+
+ipo_auditor:
+  time_free: true      # the auditor and any change in the last 3 years are in the RHP
+  params: {ipo_id: id}
+  columns: {auditor_id: int, canonical_name: str, changed_3y: int, page: int}
+  max_rows: 5
+  sql: >
+    SELECT ia.auditor_id, a.canonical_name, ia.changed_3y, ia.page
+    FROM RF_ARCHIVE.ipo_auditor ia
+    JOIN RF_ARCHIVE.auditors a ON a.auditor_id = ia.auditor_id
+    WHERE ia.ipo_id = :ipo_id
+
+auditor_track_record:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {auditor_id: int, as_of: date}
+  columns: {ipo_id: str, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 2000
+  sql: >
+    SELECT l.ipo_id, l.crashed, l.suspended, l.sebi_action, l.sebi_action_date,
+           l.outcome_known_on
+    FROM RF_ARCHIVE.ipo_auditor ia
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = ia.ipo_id
+    WHERE ia.auditor_id = :auditor_id
+      AND l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
+
+banker_names:
+  time_free: true      # reference data: the archive's lead managers and their spellings
+  params: {}
+  columns: {banker_id: int, canonical_name: str, alias: str}
+  max_rows: 5000
+  sql: >
+    SELECT b.banker_id, b.canonical_name, a.alias
+    FROM RF_ARCHIVE.bankers b
+    LEFT JOIN RF_ARCHIVE.banker_alias a ON a.banker_id = b.banker_id
+    ORDER BY b.banker_id
+
+auditor_names:
+  time_free: true      # reference data: the archive's audit firms and their spellings
+  params: {}
+  columns: {auditor_id: int, canonical_name: str, alias: str}
+  max_rows: 5000
+  sql: >
+    SELECT a.auditor_id, a.canonical_name, x.alias
+    FROM RF_ARCHIVE.auditors a
+    LEFT JOIN RF_ARCHIVE.auditor_alias x ON x.auditor_id = a.auditor_id
+    ORDER BY a.auditor_id
+
+ipo_people:
+  time_free: true      # promoters and directors are printed in the IPO's own RHP
+  params: {ipo_id: id}
+  columns: {person_key: str, name: str, role: str}
+  max_rows: 60
+  sql: >
+    SELECT person_key, name, role
+    FROM RF_ARCHIVE.ipo_people
+    WHERE ipo_id = :ipo_id
+    ORDER BY role, person_key
+
+person_past_ipos:
+  # A promoter's or director's earlier issues that had opened before as_of: the
+  # second hop of the watchlist (person -> promoter_of -> company -> named_in_order).
+  time_rule: {column: open_date, op: "<"}
+  params: {person_key: id, as_of: date}
+  columns: {ipo_id: str, company: str, open_date: date, role: str}
+  max_rows: 200
+  sql: >
+    SELECT i.ipo_id, i.company, i.open_date, p.role
+    FROM RF_ARCHIVE.ipo_people p
+    JOIN RF_ARCHIVE.ipos i ON i.ipo_id = p.ipo_id
+    WHERE p.person_key = :person_key
+      AND i.open_date < :as_of
+    ORDER BY i.open_date, i.ipo_id
+
+ipo_market_maker:
+  time_free: true      # the market maker is named in the RHP
+  params: {ipo_id: id}
+  columns: {mm_id: int, canonical_name: str}
+  max_rows: 3
+  sql: >
+    SELECT im.mm_id, m.canonical_name
+    FROM RF_ARCHIVE.ipo_market_maker im
+    JOIN RF_ARCHIVE.market_makers m ON m.mm_id = im.mm_id
+    WHERE im.ipo_id = :ipo_id
+
+market_maker_track_record:
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {mm_id: int, as_of: date}
+  columns: {ipo_id: str, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 2000
+  sql: >
+    SELECT l.ipo_id, l.crashed, l.suspended, l.sebi_action, l.sebi_action_date,
+           l.outcome_known_on
+    FROM RF_ARCHIVE.ipo_market_maker im
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = im.ipo_id
+    WHERE im.mm_id = :mm_id
+      AND l.outcome_known_on < :as_of
+    ORDER BY l.ipo_id
+
+market_maker_names:
+  time_free: true      # reference data: the archive's market makers and their spellings
+  params: {}
+  columns: {mm_id: int, canonical_name: str, alias: str}
+  max_rows: 2000
+  sql: >
+    SELECT m.mm_id, m.canonical_name, a.alias
+    FROM RF_ARCHIVE.market_makers m
+    LEFT JOIN RF_ARCHIVE.mm_alias a ON a.mm_id = m.mm_id
+    ORDER BY m.mm_id
+
+ipo_issue:
+  time_free: true      # the issue's size and split are printed on the RHP cover
+  params: {ipo_id: id}
+  columns: {issue_shares: int, fresh_shares: int, ofs_shares: int}
+  max_rows: 1
+  sql: >
+    SELECT issue_shares, fresh_shares, ofs_shares
+    FROM RF_ARCHIVE.ipos
+    WHERE ipo_id = :ipo_id
+
+ipo_anchors:
+  time_free: true      # anchors are allocated the working day before the bid opens
+  params: {ipo_id: id}
+  columns: {investor_key: str, name: str, pct: float}
+  max_rows: 100
+  sql: >
+    SELECT investor_key, name, pct
+    FROM RF_ARCHIVE.anchors
+    WHERE ipo_id = :ipo_id
+    ORDER BY pct DESC
+
+anchor_track_record:
+  # Earlier issues that shared an anchor investor with this one, with outcomes known
+  # before as_of (data guide 9.2: anchor repeat bad rate).
+  time_rule: {column: outcome_known_on, op: "<"}
+  params: {ipo_id: id, as_of: date}
+  columns: {ipo_id: str, shared: int, crashed: int, suspended: int, sebi_action: int,
+            sebi_action_date: date, outcome_known_on: date}
+  max_rows: 3000
+  sql: >
+    SELECT l.ipo_id, count(*) AS shared, max(l.crashed) AS crashed, max(l.suspended) AS suspended,
+           max(l.sebi_action) AS sebi_action, max(l.sebi_action_date) AS sebi_action_date,
+           max(l.outcome_known_on) AS outcome_known_on
+    FROM RF_ARCHIVE.anchors a1
+    JOIN RF_ARCHIVE.anchors a2 ON a2.investor_key = a1.investor_key AND a2.ipo_id <> a1.ipo_id
+    JOIN RF_ARCHIVE.labels l ON l.ipo_id = a2.ipo_id
+    WHERE a1.ipo_id = :ipo_id
+      AND l.outcome_known_on < :as_of
+    GROUP BY l.ipo_id
+    ORDER BY l.ipo_id
+
+ipo_drhp_facts:
+  time_free: true      # the draft prospectus is filed months before the bid opens
+  params: {ipo_id: id}
+  columns: {field: str, fiscal_year: str, value: float, page: int, verified: int}
+  max_rows: 2000
+  sql: >
+    SELECT field, fiscal_year, value, page, verified
+    FROM RF_ARCHIVE.drhp_facts
+    WHERE ipo_id = :ipo_id
+    ORDER BY field, fiscal_year
+
+market_security_names:
+  time_free: true      # reference data: NSE equity symbols and names, for matching peers
+  params: {}
+  columns: {symbol: str, isin: str, name: str}
+  max_rows: 10000
+  sql: >
+    SELECT symbol, isin, name
+    FROM RF_ARCHIVE.market_securities
+    ORDER BY symbol
+
+market_close_before:
+  # A listed peer's closing price on the last trading day before the bid opened.
+  time_rule: {column: date, op: "<"}
+  params: {symbol: id, as_of: date}
+  columns: {date: date, close: float}
+  max_rows: 1
+  sql: >
+    SELECT date, close
+    FROM RF_PRICES.market_closes
+    WHERE symbol = :symbol AND date < :as_of
+    ORDER BY date DESC
+    LIMIT 1

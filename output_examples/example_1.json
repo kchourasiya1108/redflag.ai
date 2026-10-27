@@ -1,0 +1,227 @@
+{
+  "run_id": "example-1",
+  "status": "success",
+  "output": {
+    "ipo": {
+      "ipo_id": "NSE-2023-SYNOPTICS",
+      "company": "Synoptics Technologies Limited",
+      "symbol": "SYNOPTICS",
+      "exchange": "NSE Emerge",
+      "open_date": "2023-06-30",
+      "issue_price": "237.0",
+      "banker_raw": "First Overseas Capital Limited",
+      "rhp_url": "https://archives.nseindia.com/content/ipo/PROSPECTUS_SYNOPTICS.zip"
+    },
+    "as_of": "2023-06-30",
+    "rating": "ELEVATED",
+    "p_adverse": 0.2768,
+    "model_version": "v2-banker-watchlist-rhp",
+    "depth": "FORENSIC",
+    "reasons": [
+      {
+        "flag": "F11",
+        "title": "Watchlist link",
+        "severity": "HIGH",
+        "text": "First Overseas Capital Limited (lead manager) is named in SEBI order sebi-45441 dated 2019-12-24, before the bid date. Being named in an order is not a finding against this company.",
+        "evidence": [
+          "sebi:sebi-45441",
+          "zq:8b5892648832ffb6"
+        ],
+        "confidence": 0.9
+      },
+      {
+        "flag": "F8",
+        "title": "Overvalued vs peers",
+        "severity": "HIGH",
+        "text": "Issue P/E 38.4 against a median of 9.8 for the listed peers the RHP names (Allied Digital Services Limited, as printed in the RHP): 3.9x.",
+        "evidence": [
+          "rhp:p75"
+        ],
+        "confidence": 0.55
+      },
+      {
+        "flag": "F2",
+        "title": "Profit spike before the IPO",
+        "severity": "ELEVATED",
+        "text": "Profit after tax FY22 \u20b94.32 cr against an average of \u20b92.09 cr in FY21-FY20 (2.1x).",
+        "evidence": [
+          "rhp:p45"
+        ],
+        "confidence": 0.7
+      },
+      {
+        "flag": "F5",
+        "title": "Customer/supplier concentration",
+        "severity": "ELEVATED",
+        "text": "Top 10 customers 83.0%. The top 10 customers alone account for 83.0% of revenue.",
+        "evidence": [
+          "rhp:p28"
+        ],
+        "confidence": 0.7
+      },
+      {
+        "flag": "F7",
+        "title": "Auditor risk",
+        "severity": "ELEVATED",
+        "text": "Statutory auditor Yogesh J Walavalkar And Co: 0 earlier SME IPOs with a known outcome, adjusted share that ended badly 0.00; the auditor changed in the 3 years before the RHP.",
+        "evidence": [
+          "zq:4f53cda18c2baa0c",
+          "rhp:p5"
+        ],
+        "confidence": 0.5
+      },
+      {
+        "flag": "F9",
+        "title": "Vague use of money",
+        "severity": "ELEVATED",
+        "text": "Of \u20b935.08 cr of proceeds, general corporate purposes take \u20b96.70 cr against a cap of \u20b98.77 cr, and working capital 50%.",
+        "evidence": [
+          "rhp:p67",
+          "rhp:p68",
+          "rhp:p69",
+          "rhp:p70",
+          "rhp:p71",
+          "rhp:p72"
+        ],
+        "confidence": 0.55
+      }
+    ],
+    "skeptic_notes": [],
+    "cleared_checks": [
+      {
+        "flag": "F1",
+        "title": "Paper profits",
+        "text": "FY22: cash from operations \u20b98.24 cr against profit after tax \u20b94.32 cr (CFO/PAT 1.91).",
+        "evidence": [
+          "rhp:p46",
+          "rhp:p45"
+        ]
+      },
+      {
+        "flag": "F19",
+        "title": "F19",
+        "text": "35% of the issue is an offer for sale by existing shareholders: that money goes to the sellers, not the company.",
+        "evidence": [
+          "zq:7a96d94bae3aec14"
+        ]
+      },
+      {
+        "flag": "F3",
+        "title": "Eligibility gaming",
+        "text": "EBITDA by year: FY22 \u20b911.00 cr, FY21 \u20b97.79 cr, FY20 \u20b96.14 cr; not clustered at the \u20b91 cr floor.",
+        "evidence": [
+          "rhp:p45"
+        ]
+      },
+      {
+        "flag": "F4",
+        "title": "Cheap insider shares",
+        "text": "No shares were allotted for cash in the 18 months before the bid (since 2021-12-29).",
+        "evidence": [
+          "rhp:p57",
+          "rhp:p58"
+        ]
+      },
+      {
+        "flag": "F6",
+        "title": "Related-party dependence",
+        "text": "FY22: sales to and purchases from related parties of \u20b90.00 cr, 0% of revenue of \u20b950.92 cr.",
+        "evidence": [
+          "rhp:p147",
+          "rhp:p148"
+        ]
+      }
+    ],
+    "questions": [
+      "The lead manager, First Overseas Capital Limited, has no earlier SME IPOs whose results after six months are known. How have the IPOs it managed performed?"
+    ],
+    "not_checked": [
+      "F10 banker track record: the lead manager has no earlier SME IPOs with known results, too few to judge",
+      "F12 drift between drafts: the draft prospectus (DRHP) is not in our records",
+      "F13 anchor investors: no anchor allocation report was found for this issue",
+      "F13 market maker: the market maker has no earlier SME IPOs with known results, too few to judge",
+      "F14 credit rating actions: the prospectus mentions no credit rating",
+      "Skeptic on F11: not reviewed: the Skeptic argues at most 4 flag(s) per run at FORENSIC depth",
+      "Skeptic on F2: model unavailable: ReplayMiss",
+      "Skeptic on F5: model unavailable: ReplayMiss",
+      "Skeptic on F7: not reviewed: the Skeptic argues at most 4 flag(s) per run at FORENSIC depth",
+      "Skeptic on F8: model unavailable: ReplayMiss",
+      "Skeptic on F9: model unavailable: ReplayMiss"
+    ],
+    "data_source": "sample (mock-sqlite)",
+    "disclaimer": "RedFlag gives a risk rating with evidence, not investment advice. It never says apply, avoid, buy or sell. Links to regulatory orders mean an entity was named in that order, not that this company did anything wrong.",
+    "summary": null
+  },
+  "agents": [
+    {
+      "name": "Intake",
+      "role": "Identifies the IPO and fixes as_of to its bid opening date",
+      "uses_llm": false
+    },
+    {
+      "name": "Names",
+      "role": "Records the issuer, lead managers, auditor, market maker and registrar",
+      "uses_llm": false
+    },
+    {
+      "name": "BankerTrackRecord",
+      "role": "Looks up the lead managers' earlier SME IPO outcomes known before as_of, through Zetaris, and computes the shrunk crash rate",
+      "uses_llm": false
+    },
+    {
+      "name": "Watchlist",
+      "role": "Matches every named party against SEBI orders dated before as_of, directly and through one other entity",
+      "uses_llm": false
+    },
+    {
+      "name": "Planner",
+      "role": "Chooses LIGHT, STANDARD or FORENSIC depth and escalates mid-run",
+      "uses_llm": false
+    },
+    {
+      "name": "Extractor",
+      "role": "Reads the restated financials from the RHP: a deterministic table pass, then Nemotron mapping rows to fields when the numbers do not verify",
+      "uses_llm": true
+    },
+    {
+      "name": "Specialists",
+      "role": "Computes F1-F3 and F5 (paper profits, profit spike, eligibility gaming, customer concentration) in code; F7 auditor risk from the archive",
+      "uses_llm": false
+    },
+    {
+      "name": "NarrativeReader",
+      "role": "Reads the share capital history, peer comparison, objects of the issue and related-party transactions page by page with the Meterless Markovian engine (Nemotron), then computes F4, F8, F9 and F6 in code",
+      "uses_llm": true
+    },
+    {
+      "name": "Skeptic",
+      "role": "Argues both sides of each ELEVATED or HIGH flag with Nemotron, citing RHP pages; applies the corroboration rule to HIGH flags",
+      "uses_llm": true
+    },
+    {
+      "name": "Scorer",
+      "role": "Applies the backtested, calibrated model to compute_features (no LLM)",
+      "uses_llm": false
+    },
+    {
+      "name": "Evaluator",
+      "role": "Checks coverage; sends gaps back to the Planner at most twice, else reports",
+      "uses_llm": false
+    },
+    {
+      "name": "CitationVerifier",
+      "role": "Re-checks every cited page, query and order before the report is written",
+      "uses_llm": false
+    },
+    {
+      "name": "Reporter",
+      "role": "Writes the report card and case_file.json from the Case File",
+      "uses_llm": false
+    }
+  ],
+  "trace_id": "trace-example-1",
+  "log_file": "logs/trace-example-1.jsonl",
+  "case_file": "output/example-1/case_file.json",
+  "report": "output/example-1/report.md",
+  "execution_time_seconds": 1.7
+}

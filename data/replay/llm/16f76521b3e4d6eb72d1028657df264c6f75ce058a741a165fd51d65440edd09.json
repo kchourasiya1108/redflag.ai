@@ -1,0 +1,1 @@
+{"text": "[TASK_COMPLETE]", "route": "nvidia/nemotron-3.5-lightning-30b-a3b", "provider": "meterless", "served_model": "nvidia/nemotron-3.5-lightning-30b-a3b", "tokens_in": 1542, "tokens_out": 5214, "cached": true, "replayed": false, "latency_ms": 52031.301208015066, "attempts": 1, "key": "16f76521b3e4d6eb72d1028657df264c6f75ce058a741a165fd51d65440edd09"}

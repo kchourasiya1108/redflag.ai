@@ -1,0 +1,24 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      SAMPLE_MODE: "true"          # no network, no credentials: sample DB + recorded replies
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - uses: actions/setup-node@v4
+        with: {node-version: "20"}
+      - name: Web app typecheck and build
+        working-directory: web
+        run: npm ci && npm run build
+      - name: Sample-mode run end to end (the three demo IPOs)
+        run: |
+          for ipo in BSE-2024-544168 NSE-2023-SYNOPTICS BSE-2024-544310; do
+            python run.py investigate "$ipo" --sample > "out-$ipo.json"
+            python -c "import json,sys; d=json.load(open('out-$ipo.json')); assert d['status'] in ('success','partial'), d; print('$ipo', d['output']['rating'])"
+          done

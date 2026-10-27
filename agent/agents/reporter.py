@@ -1,0 +1,166 @@
+"""Reporter: the report card and case file, built only from the Case File.
+
+Every number in the report comes from the Case File; when a model is
+available the Reporter only rewrites the reasons in plain language and the
+Citation verifier then re-checks every cited value (phase 16).
+"""
+from __future__ import annotations
+
+import json
+import math
+import re
+
+from pydantic import BaseModel, Field
+
+from agent.agents.base import Agent, AgentResult, RunContext
+
+DISCLAIMER = ("RedFlag gives a risk rating with evidence, not investment advice. It never "
+              "says apply, avoid, buy or sell. Links to regulatory orders mean an entity "
+              "was named in that order, not that this company did anything wrong.")
+TITLES = {"F1": "Paper profits", "F2": "Profit spike before the IPO", "F3": "Eligibility gaming",
+          "F4": "Cheap insider shares", "F5": "Customer/supplier concentration",
+          "F6": "Related-party dependence", "F7": "Auditor risk", "F8": "Overvalued vs peers",
+          "F9": "Vague use of money", "F10": "Lead manager track record",
+          "F11": "Watchlist link", "F12": "Drift between drafts",
+          "F13": "Repeat anchors / market maker", "F14": "Credit rating red flag"}
+ORDER = {"HIGH": 0, "ELEVATED": 1, "LOW": 2}
+
+
+def build_output(ctx: RunContext) -> dict:
+    doc = ctx.case.case_file()
+    score = doc["score"] or {}
+    flags = sorted(doc["flags"], key=lambda f: (ORDER[f["severity"]], f["id"]))
+    reasons = [{"flag": f["id"], "title": TITLES.get(f["id"], f["id"]), "severity": f["severity"],
+                "text": f["text"], "evidence": f["evidence"], "confidence": f["confidence"]}
+               for f in flags if f["severity"] != "LOW"]
+    cleared = [{"flag": f["id"], "title": TITLES.get(f["id"], f["id"]), "text": f["text"],
+                "evidence": f["evidence"]} for f in flags if f["severity"] == "LOW"]
+    skeptic = [{"flag": f["id"], **f["skeptic"]} for f in flags if f.get("skeptic")]
+    return {"ipo": {k: str(v) for k, v in ctx.meta.items()}, "as_of": ctx.as_of.isoformat(),
+            "rating": score.get("band"), "p_adverse": score.get("p_adverse"),
+            "model_version": score.get("version"), "depth": doc["meta"]["depth"],
+            "reasons": reasons, "skeptic_notes": skeptic, "cleared_checks": cleared,
+            "questions": doc["open_questions"],
+            "not_checked": [f"{n['item']}: {n['reason']}" for n in doc["not_checked"]],
+            "data_source": ctx.source, "disclaimer": DISCLAIMER}
+
+
+class Summary(BaseModel):
+    summary: str = Field(max_length=1200)
+
+
+_BANNED = re.compile(r"(?i)\b(fraud\w*|scam\w*|cheat\w*|buy|sell|avoid|invest\s+in|"
+                     r"(?:should|must)\s+(?:not\s+)?apply|recommend\w*)\b")
+
+
+def plain_summary(gateway, out: dict) -> str | None:
+    """Nemotron's plain-language summary, accepted only if every number in it is in
+    the evidence and it gives no advice or accusation; otherwise None."""
+    # A compact block: long prompts fail on Nightshift's extract lane ("Load
+    # failed", measured 26 Oct); numbers are still checked against the full output.
+    shown = {
+        "rating": out["rating"], "probability": out["p_adverse"],
+        "reasons": [f"{r.get('flag', '')} {r.get('severity', '')}: {r.get('text', '')[:220]}"
+                    for r in out["reasons"]],
+        "skeptic": [f"{s.get('flag', '')} {s.get('ruling', '')}" for s in out["skeptic_notes"]],
+        "passed": [c.get("flag", "") for c in out["cleared_checks"]],
+        "not_checked": len(out["not_checked"]), "questions": len(out["questions"])}
+    evidence = json.dumps(shown, default=str)
+    prompt = ("Write a plain-language summary (at most 120 words) of this IPO risk report for "
+              "a retail investor. Use only facts and numbers that appear below. Neutral wording: "
+              "say an entity was 'named in an order', never that anyone did wrong. Do not tell "
+              "the reader to apply, avoid, buy or sell.\n\n" + evidence
+              + '\n\nReply with JSON: {"summary": "..."}')
+    try:
+        text = gateway.generate(prompt, "You explain risk reports clearly and neutrally.",
+                                schema=Summary, route="extract", purpose="reporter:summary"
+                                ).parsed.summary.strip()
+    except Exception:
+        return None
+    numbers = set(re.findall(r"\d+(?:\.\d+)?", _ungroup(text)))
+    if _BANNED.search(text) or not numbers <= allowed_numbers(shown):   # only what it saw
+        return None
+    return text
+
+
+def _ungroup(text: str) -> str:
+    """1,234.5 and 1,23,456 (Indian grouping) -> plain digits."""
+    return re.sub(r"(?<=\d),(?=\d{2,3}\b)", "", text)
+
+
+def allowed_numbers(out: dict) -> set[str]:
+    """Every number in the evidence as written, plus its usual roundings and, for
+    probabilities and shares, as a percentage."""
+    # ensure_ascii=False: an escaped "₹" (\u20b9) would glue its hex to the amount.
+    blob = _ungroup(json.dumps(out, default=str, ensure_ascii=False))
+    allowed = set()
+
+    def rounded(v: float) -> set[str]:      # both ways: 15.25 may be written 15.2 or 15.3
+        out = set()
+        for d in (0, 1, 2):
+            f = 10 ** d
+            out |= {f"{v:.{d}f}", f"{math.floor(v * f) / f:.{d}f}", f"{math.ceil(v * f) / f:.{d}f}"}
+        return out
+    for token in re.findall(r"-?\d+(?:\.\d+)?", blob):
+        v = abs(float(token))
+        allowed |= {token.lstrip("-")} | rounded(v)
+        if v < 1:                       # a probability or share, as a percentage
+            allowed |= rounded(v * 100)
+    return {a.rstrip("0").rstrip(".") if "." in a else a for a in allowed} | allowed
+
+
+def render_markdown(out: dict) -> str:
+    ipo = out["ipo"]
+    lines = [f"# RedFlag report: {ipo.get('company')} ({ipo.get('exchange')})", "",
+             f"**Rating: {out['rating']}**"
+             + (f" (probability of an adverse outcome {out['p_adverse']:.0%})"
+                if out["p_adverse"] is not None else ""),
+             f"As of the bid opening date {out['as_of']}. Depth: {out['depth']}. "
+             f"Model {out['model_version']}. Data: {out['data_source']}.", ""]
+    if out.get("summary"):
+        lines += [out["summary"], ""]
+    sections = [("Reasons", [f"**{r['flag']} {r['title']} ({r['severity']}).** {r['text']} "
+                             f"_Evidence: {', '.join(r['evidence'][:4])}_" for r in out["reasons"]]),
+                ("Skeptic's notes", [f"**{s['flag']}: {s['ruling']}.** {s['reason']} "
+                                     f"_Evidence: {', '.join(s.get('evidence', []))}_"
+                                     for s in out["skeptic_notes"]]),
+                ("Checks that passed", [f"**{c['flag']} {c['title']}.** {c['text']}"
+                                        for c in out["cleared_checks"]]),
+                ("Questions to ask before applying", out["questions"]),
+                ("Not checked", out["not_checked"])]
+    for title, items in sections:
+        lines += [f"## {title}", ""] + ([f"- {i}" for i in items] or ["- None."]) + [""]
+    lines += ["---", "", out["disclaimer"], ""]
+    return "\n".join(lines)
+
+
+class Reporter(Agent):
+    name = "Reporter"
+    role = "Writes the report card and case_file.json from the Case File"
+
+    def run(self, ctx: RunContext) -> AgentResult:
+        out = build_output(ctx)
+        out["summary"] = (plain_summary(ctx.gateway, out)
+                          if ctx.gateway is not None and ctx.seconds_left() > 90 else None)
+        self._remember(ctx, out)
+        folder = ctx.cfg.data.parent / "output" / ctx.run_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "report.md").write_text(render_markdown(out))
+        (folder / "case_file.json").write_text(json.dumps(
+            {**ctx.case.case_file(), "trace_ref": str(ctx.tracer.path)}, indent=2, default=str))
+        ctx.scratch["output"], ctx.scratch["output_dir"] = out, folder
+        return AgentResult(f"rating {out['rating']} with {len(out['reasons'])} reasons, "
+                           f"{len(out['questions'])} questions", data={"dir": str(folder)})
+
+    def _remember(self, ctx: RunContext, out: dict) -> None:
+        """H-MEM: lessons for later runs, tagged with this run's as_of (never scored)."""
+        if ctx.memory is None:
+            return
+        bankers = [n.entity_id for n in ctx.named if n.role == "banker" and n.entity_id]
+        for line in ctx.scratch.get("layout_notes", []):
+            ctx.memory.add(line, as_of=ctx.as_of, tags=["rhp_layout"], entities=bankers,
+                           layer="long_term", agent_id="Extractor", run_id=ctx.run_id)
+        for note in out["skeptic_notes"]:
+            ctx.memory.add(f"{note['flag']} on {ctx.meta.get('company')}: {note['ruling']}. "
+                           f"{note['reason'][:240]}", as_of=ctx.as_of,
+                           tags=["skeptic", note["flag"]], agent_id="Skeptic", run_id=ctx.run_id)
