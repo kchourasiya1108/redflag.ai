@@ -124,3 +124,11 @@ def test_a_role_that_keeps_failing_goes_straight_to_its_fallback(tmp_path):
     for _ in range(3):
         gw.generate("hi", route="extract", purpose="t")
     assert calls == ["extract", "reason", "extract", "reason", "reason"]   # third call skips the fast model
+
+
+def test_f1_cannot_be_dismissed_on_its_own_signal():
+    from agent.agents.skeptic import Skeptic
+    assert Skeptic.self_explained("F1", "Negative CFO is explained by working capital absorption from expansion")
+    assert Skeptic.self_explained("F1", "Trade receivable days rose from 12 to 39 days")
+    assert not Skeptic.self_explained("F1", "Receivables were collected in the following quarter (page 88)")
+    assert not Skeptic.self_explained("F2", "Working capital rose with revenue")

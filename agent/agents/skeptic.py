@@ -92,6 +92,10 @@ class Skeptic(Agent):
             verdict, reason = ruling.ruling, ruling.reason
             if verdict != "upheld" and not evidence:
                 verdict, reason = "upheld", reason + " (No page was cited, so the flag stands.)"
+            if verdict == "dismissed" and self.self_explained(flag["id"], reason):
+                verdict, reason = "downgraded", reason + (
+                    " (Working capital or receivables are what this check measures, so it is "
+                    "softened rather than dismissed.)")
             new = {"upheld": None, "downgraded": {"HIGH": "ELEVATED", "ELEVATED": "LOW"},
                    "dismissed": {"HIGH": "LOW", "ELEVATED": "LOW"}}[verdict]
             ctx.case.rule_on_flag(flag["id"], verdict, reason, evidence, agent=self.name,
@@ -108,6 +112,16 @@ class Skeptic(Agent):
                "what this flag measures, not an ordinary explanation; count them only if the RHP "
                "shows the cash was collected afterwards."),
     }
+
+    @staticmethod
+    def self_explained(flag_id: str, reason: str) -> bool:
+        """F1 dismissed on its own signal: working capital or receivables, with no sign the
+        cash was collected later."""
+        if flag_id != "F1":
+            return False
+        own = re.search(r"(?i)working[\s-]*capital|receivable|debtor", reason)
+        collected = re.search(r"(?i)\b(?:collected|realis|realiz|received\s+(?:subsequently|later|after))", reason)
+        return bool(own) and not collected
 
     def ask(self, ctx: RunContext, flag: dict, pages: list[str], depth: str):
         """One cited ruling from Nemotron, (None, pages) when there is no time, or the
