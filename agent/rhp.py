@@ -162,8 +162,8 @@ ROWS = {
            ("cff", r"net\s+cash\s+.{0,40}?financing"),
            ("net_change", r"net\s+(?:increase|decrease|change|\(decrease\)|\(increase\))"
                           r".{0,40}?cash"),
-           ("opening_cash", r"(?:opening|beginning|start).{0,40}?cash|"
-                            r"cash.{0,60}?(?:beginning|opening|start)"),
+           ("opening_cash", r"(?:opening|begin+ing|start).{0,40}?cash|"
+                            r"cash.{0,60}?(?:begin+ing|opening|start)"),
            ("closing_cash", r"(?:closing).{0,40}?cash|cash.{0,60}?(?:end\s+of|closing)")],
 }
 _HEADS = {"bs": r"(?i)statement\s+of\s+assets\s+(?:and|&)\s+liabilities|balance\s+sheet",
@@ -198,7 +198,7 @@ def parse_statement(text: str, kind: str, page: int) -> Statement | None:
             end = re.search(head, body[40:])
             if end:
                 body = body[:40 + end.start()]
-    for line in _join_wrapped(body.splitlines()):
+    for line in _join_wrapped(body.splitlines(), k):
         nums = [n for n in _NUMBER.findall(line)]
         if len(nums) < k:
             continue
@@ -223,16 +223,21 @@ def parse_statement(text: str, kind: str, page: int) -> Statement | None:
     return st if st.values or st.totals else None
 
 
+def _values(line: str) -> list[str]:
+    """The amounts on a line, leaving out row labels such as "(A+B+C)" or "(I + II)"."""
+    return [n for n in _NUMBER.findall(line) if re.search(r"\d", n) or n.strip() in "-–"]
+
+
 def _has_words(text: str) -> bool:
     """A real label, not only a row numeral ("III", "(a)") or an annexure number."""
     return any(len(w) >= 3 and not re.fullmatch(r"(?i)[ivxlc]+", w) for w in re.findall(r"[A-Za-z]+", text))
 
 
 def _numbers_only(line: str) -> bool:
-    return bool(_NUMBER.search(line)) and not re.sub(r"[\s(),.\-–]|--", "", _NUMBER.sub("", line))
+    return bool(_NUMBER.search(line)) and not re.sub(r"[\s(),.\-–*]|--", "", _NUMBER.sub("", line))
 
 
-def _join_wrapped(lines: list[str]) -> list[str]:
+def _join_wrapped(lines: list[str], k: int | None = None) -> list[str]:
     """Join a label that wrapped onto the next line, so it meets its numbers; a row
     whose numbers sit on a line of their own ("Depreciation and amortisation" /
     "expense" / "33.69 126.01 ...") joins its label too."""
@@ -240,8 +245,12 @@ def _join_wrapped(lines: list[str]) -> list[str]:
     for line in (raw.strip() for raw in lines):
         if (out and line and not _NUMBER.search(out[-1])
                 and (line[0].islower() or _numbers_only(line)
+                     or re.fullmatch(r"\([A-Z0-9IVX+\-–\s]{1,20}\)", line)      # "(A+B+C)"
                      or out[-1].lower().endswith(("&", " and", " of", ",", "/")))):
             out[-1] += " " + line
+        elif (k and out and line and _numbers_only(line) and _has_words(out[-1])
+                and 0 < len(_values(out[-1])) < k and len(_values(out[-1])) + len(_values(line)) <= k):
+            out[-1] += " " + line       # a row's numbers split over two lines: "(373.22)" / "378.53 (0.31) 1.51"
         else:
             out.append(line)
     return out
@@ -258,9 +267,13 @@ def parse_statements(pages: list[str]) -> dict[str, Statement]:
     for kind in ("bs", "pl", "cf"):
         best, best_key = None, None
         for page in statement_pages(pages, kind):
-            # A statement often starts on one page and ends on the next.
+            # A statement often starts on one page and ends on the next, or the one after.
             text = pages[page - 1] + "\n" + (pages[page] if page < len(pages) else "")
             st = parse_statement(text, kind, page)
+            if page + 1 < len(pages) and (st is None or not any(c.ran for c in verify(st))):
+                longer = parse_statement(text + "\n" + pages[page + 1], kind, page)
+                if longer is not None and any(c.ran for c in verify(longer)):
+                    st = longer
             if st is None:
                 continue
             key = (sum(c.passed for c in verify(st)), len(st.values))

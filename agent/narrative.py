@@ -504,14 +504,35 @@ def _nature(value) -> str:
     return v
 
 
+_DATE_KEY = re.compile(r"(?i)(20\d{2})[_\-/ ](\d{2})[_\-/ ](\d{2})")
+
+
+def _long_rows(rows: list[dict]) -> list[dict]:
+    """A row printed wide, one column per period ("period_ended_2026_03_31": 197.14),
+    becomes one row per period."""
+    out = []
+    for r in rows:
+        dated = {k: v for k, v in r.items() if _DATE_KEY.search(k)}
+        if r.get("amount") is None and dated:
+            base = {k: v for k, v in r.items() if k not in dated}
+            for k, v in dated.items():
+                y, m, d = _DATE_KEY.search(k).groups()
+                out.append({**base, "fiscal_year": f"{y}-{m}-{d}", "amount": v})
+        else:
+            out.append(r)
+    return out
+
+
 def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:
-    """Related-party sales and purchases as a share of revenue, latest year (F6)."""
+    """Related-party sales and purchases as a share of revenue, latest year (F6).
+
+    The latest full year is used when it has both; a stub period only otherwise."""
     factor = UNIT_TO_CRORE.get(str(data.get("unit", "")).lower().rstrip("s").replace("lac", "lakh"))
     if factor is None:
         return {"error": "unit not stated"}
     by_fy: dict[str, float] = {}
     pages, seen = set(), set()
-    for r in data.get("rows", []):
+    for r in _long_rows(data.get("rows", [])):
         r = {**r, "nature": _nature(r.get("nature"))}
         if r.get("nature") not in ("sale", "purchase"):
             continue
@@ -529,7 +550,8 @@ def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:
         by_fy[fy] = by_fy.get(fy, 0.0) + abs(amount) * factor
         if _num(r.get("page")):
             pages.add(int(_num(r.get("page"))))
-    years = sorted((fy for fy in by_fy if fy in revenue_by_fy and revenue_by_fy[fy]), reverse=True)
+    years = sorted((fy for fy in by_fy if fy in revenue_by_fy and revenue_by_fy[fy]),
+                   key=lambda fy: (fy.startswith("FY"), fy), reverse=True)
     if not years:
         return {"by_fy_cr": by_fy, "error": "no year with both RPT and revenue"}
     fy = years[0]

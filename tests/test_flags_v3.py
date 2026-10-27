@@ -371,3 +371,33 @@ a) The figures for our company are as certified by the Statutory Auditor."""
     kpi = page.replace("Hitachi Energy\nIndia Limited", "EBITDA Margin (%)")
     assert [p["name"] for p in peer_table([kpi], [1], "Yash Highvoltage Limited")["peers"]] == [
         "Crompton Greaves Power and Industrial Solutions Limited"]
+
+
+def test_related_party_rows_printed_wide_or_for_a_stub_period_are_counted():
+    from agent.narrative import rpt_share
+    data = {"unit": "lakh", "rows": [
+        {"party": "Core4 Energy", "nature": "sale", "fiscal_year": "2026-06-30", "amount": 27.06},
+        {"party": "Nandi Enterprises", "nature": "Purchases", "period_ended_2026_06_30": 85.74,
+         "period_ended_2026_03_31": 197.14}]}
+    got = rpt_share(data, {"S2026-06-30": 45.65, "FY26": 91.34})
+    assert got["fiscal_year"] == "FY26" and abs(got["rpt_cr"] - 1.9714) < 1e-9
+    got = rpt_share(data, {"S2026-06-30": 45.65})
+    assert got["fiscal_year"] == "S2026-06-30" and abs(got["rpt_cr"] - 1.128) < 1e-9
+
+
+def test_concentration_rows_with_footnotes_and_respectively_lists():
+    from agent.extract import top_shares
+    table = """% of Revenue from operations
+Top 1 customer* 1,441.42 31.57% 3,864.84 42.31%
+Top 5 customers* 3,902.73 85.49% 6,048.28 66.22%
+Top 1 supplier of
+raw materials*
+933.32 33.97% 814.13 16.69%
+Top 5 suppliers of
+raw materials *
+2,268.21 82.56% 2,352.64 48.23%"""
+    got = {r["field"]: (r["value"], r["verified"]) for r in top_shares([table])}
+    assert got["biz.top1_customers_pct"] == (31.57, True) and got["biz.top5_suppliers_pct"] == (82.56, True)
+    risk = ("our top 10 customers contributed 98.98%, 79.66%, 95.96% and 100% of our revenues from operations "
+            "for the period ended December 31, 2023 and for the year ended March 31, 2023, 2022 and 2021, respectively.")
+    assert top_shares([risk])[0]["value"] == 98.98 and top_shares([risk])[0]["verified"]

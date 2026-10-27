@@ -194,7 +194,11 @@ _TOPN_BEFORE = re.compile(r"(?is)(?<![\d.,])((?:\d{1,2}(?:\.\d{1,2})?\s*%[\s,]*(
 # A table row: "Top 5 Customers 2,096.83 52.81 ..." or "Largest Customer 792.88 19.97 ..."
 # (amount, then its share) under a "% of revenue" heading.
 _TOPN_ROW = re.compile(r"(?im)^\W*(largest|top\s*\(?(?:1|3|5|10|one|three|five|ten)\)?)\s+"
-                       r"(customers?|clients?|suppliers?|vendors?)\s+([\d,]+\.\d+)\s+(\d{1,2}\.\d{1,2})\b")
+                       r"(customers?|clients?|suppliers?|vendors?)\b[^\d\n]{0,40}?\s*([\d,]+\.\d+)\s+(\d{1,2}\.\d{1,2})%?(?!\d)")
+# "top 10 customers contributed 98.98%, 79.66%, 95.96% and 100% ... respectively": one
+# share per period, in the order of the periods named; the first is the latest.
+_TOPN_RESPECTIVELY = re.compile(r"(?is)top\s*(1|3|5|10|one|three|five|ten)\s+(customers?|clients?|buyers?|suppliers?|vendors?)"
+                                r"\b[^%]{0,60}?((?:\d{1,3}(?:\.\d{1,2})?\s*%[\s,]*(?:and\s+)?){3,})[^.]{0,200}?respectively")
 
 
 def _tier(word: str) -> int | None:
@@ -227,13 +231,22 @@ def top_shares(pages: list[str]) -> list[dict]:
     for i, text in enumerate(pages, 1):
         for m in _TOPN.finditer(text):
             note(i, m.group(1), m.group(2), m.group(3))
+        for m in _TOPN_RESPECTIVELY.finditer(text):
+            key = note(i, m.group(1), m.group(2), re.match(r"[\d.]+", m.group(3)).group())
+            if key:
+                self_checked.add(key)
         for m in _TOPN_BEFORE.finditer(text):
             # "73.54% and 71.33%, 67.44% ... respectively": the first is the latest period.
             note(i, m.group(2), m.group(3), re.match(r"[\d.]+", m.group(1)).group())
         if re.search(r"(?i)%\s*of", text):
             rows = []
-            for m in _TOPN_ROW.finditer(re.sub(r"[ \t]*\n[ \t]*(?=customers?\b|clients?\b|suppliers?\b|vendors?\b)", " ",
-                                               text, flags=re.I)):
+            joined = re.sub(r"[ \t]*\n[ \t]*(?=customers?\b|clients?\b|suppliers?\b|vendors?\b)", " ", text, flags=re.I)
+            # "Top 5 suppliers of / raw materials * / 2,268.21 82.56% ...": the label wraps above its numbers.
+            joined = re.sub(r"(?im)^(\W*(?:largest|top\s*\(?\d+\)?)\s+(?:customers?|suppliers?|clients?|vendors?)\b[^\d\n]*)"
+                            r"\n([^\d\n]*)\n(?=[\d,]+\.\d+\s)", r"\1 \2 ", joined)
+            joined = re.sub(r"(?im)^(\W*(?:largest|top\s*\(?\d+\)?)\s+(?:customers?|suppliers?|clients?|vendors?)\b[^\d\n]*)"
+                            r"\n(?=[\d,]+\.\d+\s)", r"\1 ", joined)
+            for m in _TOPN_ROW.finditer(joined):
                 key = note(i, m.group(1), m.group(2), m.group(4))
                 amount, share = float(m.group(3).replace(",", "")), float(m.group(4))
                 if key and share:
