@@ -391,8 +391,10 @@ class Markovian:
                     parsed.state, carryover, text, cfg, self.compressor)
                 if on_chunk:
                     on_chunk(chunk)
-                done = (parsed.done or (stop_when is not None and stop_when(step, carryover))
-                        or (windows is not None and step >= len(windows)))
+                # With fixed windows every page is read: a model that calls the table done on
+                # a summary page would otherwise skip the pages that hold its rows.
+                done = ((windows is not None and step >= len(windows)) or (windows is None and (
+                    parsed.done or (stop_when is not None and stop_when(step, carryover)))))
             if not done and run.status == "completed" and len(run.chunks) >= cfg.max_chunks:
                 run.status = "max-chunks"
         except Exception as e:      # a failed chunk keeps the partial run (section 11)

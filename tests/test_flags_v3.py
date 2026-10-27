@@ -321,3 +321,15 @@ def test_years_under_one_march_heading_and_shifted_draft_columns():
                   {"field": "pl.pbt", "fiscal_year": "FY24", "value": 4.08, "verified": 1}])
     shifted = [{"field": "pl.pbt", "fiscal_year": "FY25", "value": 4.08, "page": 1, "verified": 1}]
     assert f12_drift(rhp, shifted) is None
+
+
+def test_a_windowed_read_covers_every_page_even_after_the_model_says_done():
+    from agent.engines.markovian import ChunkConfig, Markovian
+    seen = []
+
+    def gen(prompt, attachments=None, system_prompt=None, on_stream=None, abort_signal=None):
+        seen.append(attachments[-1]["name"])
+        return {"text": '{"rows": []} [TASK_COMPLETE]'}
+    run = Markovian(ChunkConfig(chunk_size=8000, max_chunks=6, carryover_tokens=640), generator=gen).run(
+        "read the table", mode="EXTRACT", reflect=False, windows=["p1", "p2", "p3"])
+    assert seen == ["part 1 of 3", "part 2 of 3", "part 3 of 3"] and run.status == "completed"
