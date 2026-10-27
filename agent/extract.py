@@ -147,7 +147,10 @@ def extract_financials(pages: list[str], *, gateway=None, label: str = "rhp",
                 st = None
             if st is not None:
                 checks = verify(st)
-                if best.statement is None or sum(c.passed for c in checks) > len(best.verified_periods):
+                # More verified periods wins; on a tie, the reading with more rows (a ratios
+                # table can verify too, but lacks revenue and depreciation).
+                if best.statement is None or (sum(c.passed for c in checks), len(st.values)) > (
+                        len(best.verified_periods), len(best.statement.values)):
                     best.statement, best.checks, best.method = st, checks, method
             if on_attempt:
                 on_attempt(kind, method, best)
@@ -198,7 +201,7 @@ _TOPN_ROW = re.compile(r"(?im)^\W*(largest|top\s*\(?(?:1|3|5|10|one|three|five|t
 # "top 10 customers contributed 98.98%, 79.66%, 95.96% and 100% ... respectively": one
 # share per period, in the order of the periods named; the first is the latest.
 _TOPN_RESPECTIVELY = re.compile(r"(?is)top\s*(1|3|5|10|one|three|five|ten)\s+(customers?|clients?|buyers?|suppliers?|vendors?)"
-                                r"\b[^%]{0,60}?((?:\d{1,3}(?:\.\d{1,2})?\s*%[\s,]*(?:and\s+)?){3,})[^.]{0,200}?respectively")
+                                r"\b[^%]{0,60}?((?:\d{1,3}(?:\.\d{1,2})?\s*%[\s,]*(?:and\s+)?){2,})[^.]{0,200}?respectively")
 
 
 def _tier(word: str) -> int | None:

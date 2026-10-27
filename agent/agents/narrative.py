@@ -99,7 +99,8 @@ class NarrativeReader(Agent):
             code = peer_table(pages, basis.pages, ctx.meta.get("company", ""))
             if code.get("peers"):
                 basis.data = {**basis.data, "peers": code["peers"],
-                              "issue_eps": basis.data.get("issue_eps") or code.get("issue_eps")}
+                              "issue_eps": basis.data.get("issue_eps") or code.get("issue_eps"),
+                              "issue_pe": basis.data.get("issue_pe") or code.get("issue_pe")}
         if basis and basis.data.get("peers"):
             valuation = peer_valuation(basis.data, ctx.meta.get("company", ""), ctx.meta.get("issue_price"))
             if valuation.get("peers") and not valuation.get("issue_pe") and not ctx.meta.get("issue_price"):
@@ -113,7 +114,7 @@ class NarrativeReader(Agent):
                                      agent=self.name)
         rpt = results.get("rpt")
         facts = ctx.scratch.get("facts")
-        if rpt and rpt.data.get("rows") and facts is not None:
+        if rpt and rpt.pages and facts is not None and (rpt.data.get("rows") or not rpt.error):
             # Full years and stub periods ("S2026-06-30"): related-party tables often lead
             # with the stub period the RHP's statements also cover.
             labels = set(facts.years()) | {f["fy"] for f in ctx.case.facts(verified_only=True) if f.get("fy")}
@@ -121,8 +122,8 @@ class NarrativeReader(Agent):
             revenue = {k: v for k, v in revenue.items() if v}
             summary = rpt_share(rpt.data, revenue)
             text = "\n".join(pages[p - 1] for p in rpt.pages)
-            if summary.get("share") is None and revenue and not re.search(
-                    r"(?i)\b(?:sales?|purchases?|sold|bought)\b", text):
+            if summary.get("share") is None and revenue and re.search(r"(?i)related\s+part", text) \
+                    and not re.search(r"(?i)\b(?:sales?|purchases?|sold|bought)\b", text):
                 # The section was read and lists no sales or purchases with related parties.
                 fy = max((y for y in revenue if y.startswith("FY")), default=max(revenue))
                 summary = {"fiscal_year": fy, "rpt_cr": 0.0, "revenue_cr": revenue[fy], "share": 0.0,

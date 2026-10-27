@@ -313,6 +313,11 @@ _PEER_COLS = (("revenue", r"revenue|total\s+income"), ("cmp", r"\bcmp\b|market\s
               ("pnav", r"price\s*/\s*nav|p\s*/\s*b"), ("nav", r"\bnav\b|net\s+asset"))
 _PEER_PROSE = re.compile(r"(?is)peer[^.]{0,80}?\bi\.?\s*e\.?,?\s+([A-Z][\w&.,\- ]{2,80}?(?:Limited|Ltd\.?))"
                          r"[^.]{0,30}?\bwhose\s+P\s*/?\s*E[^.]{0,60}?\bis\s+(\d+(?:\.\d+)?)")
+# "Based on the basic and diluted EPS of Rs. 6.18 ... for ... March 31, 2022, the P/E ratio is
+# 38.35": the issuer's own P/E at the issue price; the first such line is the latest year.
+_OWN_PE = re.compile(r"(?is)based\s+on\s+(?:the\s+)?(?:basic\s+(?:and|&)\s+diluted\s+|basic\s+|diluted\s+)?"
+                     r"EPS\s+of\s+(?:Rs\.?|₹|INR)\s*(\d+(?:\.\d+)?)(?![^.]{0,200}?weighted)[^.]{0,200}?"
+                     r"P\s*/\s*E\s+(?:ratio\s+)?is\s+(\d+(?:\.\d+)?)")
 _CELL = re.compile(r"(?<![\w.])\(?-?\d[\d,]*(?:\.\d+)?\)?%?(?![\w])|\[[●•]\]\*?|\bNA\b|N\.A\.")
 
 
@@ -354,12 +359,18 @@ def peer_table(pages: list[str], window: list[int], company: str = "") -> dict:
     own = _distinctive(company)
     candidates = sorted(set(window) | set(range(max(1, window[0] - 2), min(window[0] + 8, len(pages) + 1)))) \
         if window else []
+    # The latest full year's line, not a part-year one ("for the nine months ended December").
+    found = [m for p in candidates for m in _OWN_PE.finditer(pages[p - 1])]
+    full = [m for m in found if re.search(r"(?i)march\s*,?\s*31|31(?:st)?\s+march|financial\s+year|fiscal|\bfy",
+                                         m.group(0)) and not re.search(r"(?i)months|december|september|june", m.group(0))]
+    stated = (full or found or [None])[0]
+    mine = {"issue_eps": float(stated.group(1)), "issue_pe": float(stated.group(2))} if stated else {}
     for p in candidates:
         text = pages[p - 1]
         m = _PEER_PROSE.search(text)
         if m and not _PEER_HEAD.search(text):
             return {"peers": [{"name": m.group(1).strip(), "pe": float(m.group(2)), "page": p}],
-                    "source": "rhp text"}
+                    "source": "rhp text", **mine}
         head = _PEER_HEAD.search(text)
         if not head or not re.search(r"(?i)p\s*/\s*e", text[head.start():]):
             continue
@@ -420,7 +431,8 @@ def peer_table(pages: list[str], window: list[int], company: str = "") -> dict:
                 peers.append({"name": clean, "pe": pe, "page": p})
             name = ""
         if peers and not bad:
-            return {"peers": peers, "issue_eps": issue_eps, "source": "rhp table"}
+            return {"peers": peers, "source": "rhp table", **mine,
+                    "issue_eps": issue_eps or mine.get("issue_eps")}
         if bad:
             return {}
     return {}
