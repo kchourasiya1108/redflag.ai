@@ -106,3 +106,21 @@ def test_a_cached_fallback_answer_is_reused_without_retrying_the_failing_model(t
     gw._generate = lambda prompt, system=None, *, route="", **k: (calls.append(route), SimpleNamespace(served_model="deep"))[1]
     assert gw.generate("hi", route="extract", purpose="t").served_model == "deep"
     assert calls == ["reason"]                  # the failing model is not tried again
+
+
+def test_a_role_that_keeps_failing_goes_straight_to_its_fallback(tmp_path):
+    from agent.llm import Gateway, GatewayError
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "fast", "reason": "deep"})
+    calls = []
+    gw._is_cached = lambda *a, **k: False
+
+    def fake(prompt, system=None, *, route="", **k):
+        calls.append(route)
+        if route == "extract":
+            raise GatewayError("502")
+        return SimpleNamespace(served_model="deep")
+    gw._generate = fake
+    for _ in range(3):
+        gw.generate("hi", route="extract", purpose="t")
+    assert calls == ["extract", "reason", "extract", "reason", "reason"]   # third call skips the fast model

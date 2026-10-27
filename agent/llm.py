@@ -43,8 +43,10 @@ class GatewayError(RuntimeError):
     pass
 
 
-# A role that fails falls back once to this role (live runs only).
+# A role that fails falls back once to this role (live runs only). After BREAK_AFTER
+# failures in one gateway (one run), the role goes straight to its fallback.
 FALLBACK_ROLE = {"extract": "reason"}
+BREAK_AFTER = 2
 
 
 class ReplayMiss(GatewayError):
@@ -182,15 +184,17 @@ class Gateway:
     deadline: float | None = None       # time.perf_counter() value; no call starts after it
     budget: Budget = field(default_factory=Budget)
     on_call: Callable[[dict], None] | None = None     # trace hook
+    _role_failures: dict = field(default_factory=dict)  # role -> provider failures this run
 
     def generate(self, prompt: str, system: str | None = None, *,
                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
                  purpose: str = "", max_tokens: int | None = None,
                  images: list[bytes] | None = None) -> GenResult:
         fallback = FALLBACK_ROLE.get(route)
+        broken = self._role_failures.get(route, 0) >= BREAK_AFTER
         if fallback and fallback in self.routes and not self.sample_mode \
                 and not self._is_cached(prompt, system, schema, route, images) \
-                and self._is_cached(prompt, system, schema, fallback, images):
+                and (broken or self._is_cached(prompt, system, schema, fallback, images)):
             # This call failed on its own role before and was answered by the fallback:
             # reuse that answer instead of waiting for the failing model again.
             return self._generate(prompt, system, schema=schema, route=fallback, purpose=purpose,
@@ -201,6 +205,7 @@ class Gateway:
         except (ReplayMiss, BudgetExceeded):
             raise
         except GatewayError as e:
+            self._role_failures[route] = self._role_failures.get(route, 0) + 1
             # The fast extract model can be down while the reasoning model answers
             # (NVIDIA 502s on 27 Oct 2026): retry that one call on the reasoning role,
             # live only, so a check completes instead of skipping sections.
