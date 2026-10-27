@@ -114,7 +114,7 @@ class NarrativeReader(Agent):
                                      agent=self.name)
         rpt = results.get("rpt")
         facts = ctx.scratch.get("facts")
-        if rpt and rpt.pages and facts is not None and (rpt.data.get("rows") or not rpt.error):
+        if rpt and rpt.pages and facts is not None:
             # Full years and stub periods ("S2026-06-30"): related-party tables often lead
             # with the stub period the RHP's statements also cover.
             labels = set(facts.years()) | {f["fy"] for f in ctx.case.facts(verified_only=True) if f.get("fy")}
@@ -124,11 +124,15 @@ class NarrativeReader(Agent):
             text = "\n".join(pages[p - 1] for p in rpt.pages)
             if summary.get("share") is None and revenue and re.search(r"(?i)related\s+part", text) \
                     and not re.search(r"(?i)\b(?:sales?|purchases?|sold|bought)\b", text):
-                # The section was read and lists no sales or purchases with related parties.
+                # The section lists no sales or purchases with related parties: read in code,
+                # so this holds even when the model could not read the table.
                 fy = max((y for y in revenue if y.startswith("FY")), default=max(revenue))
                 summary = {"fiscal_year": fy, "rpt_cr": 0.0, "revenue_cr": revenue[fy], "share": 0.0,
                            "pages": rpt.pages[:2]}
-            self._record(ctx, f6_related_parties(summary), rpt, "F6 related parties", done)
+            if summary.get("share") is None and rpt.error:
+                ctx.case.add_not_checked("F6 related parties", rpt.error, agent=self.name)
+            else:
+                self._record(ctx, f6_related_parties(summary), rpt, "F6 related parties", done)
         elif rpt:
             ctx.case.add_not_checked("F6 related parties", rpt.error or
                                      "no RPT table or verified revenue", agent=self.name)
