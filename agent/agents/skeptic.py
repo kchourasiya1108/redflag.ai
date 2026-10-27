@@ -101,6 +101,14 @@ class Skeptic(Agent):
         return AgentResult(f"rulings {', '.join(rulings) or 'none'}"
                            + (f"; HIGH kept by corroboration: {held}" if held else ""))
 
+    # What a flag measures cannot also explain it away (Wiscon Industries, 27 Oct 2026:
+    # F1 was dismissed because "receivable days rose sharply", which is F1's signal).
+    NOT_AN_EXPLANATION = {
+        "F1": ("Rising receivables, a working-capital build-up or slow customer payments are "
+               "what this flag measures, not an ordinary explanation; count them only if the RHP "
+               "shows the cash was collected afterwards."),
+    }
+
     def ask(self, ctx: RunContext, flag: dict, pages: list[str], depth: str):
         """One cited ruling from Nemotron, (None, pages) when there is no time, or the
         exception when the model failed. Runs on a worker thread: reads only."""
@@ -120,7 +128,9 @@ class Skeptic(Agent):
                   "disclosed, ordinary explanation (e.g. an order book, a capex plan, a "
                   "one-off)? Rule 'dismissed' only if the explanation fully accounts for "
                   "it, 'downgraded' if it partly does, else 'upheld'. Cite only the pages "
-                  "shown, as rhp:p<N>. Reply with JSON: ruling, reason, evidence.")
+                  "shown, as rhp:p<N>. Reply with JSON: ruling, reason, evidence."
+                  + (f" {self.NOT_AN_EXPLANATION[flag['id']]}" if flag["id"] in self.NOT_AN_EXPLANATION
+                     else ""))
         try:
             res = ctx.gateway.generate(prompt, "You are the Skeptic on an IPO risk team. "
                                        "Be fair to the company and exact about evidence.",
