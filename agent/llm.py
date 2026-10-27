@@ -207,8 +207,11 @@ class Gateway:
         last: GatewayError | None = None
         for i, role in enumerate(chain):
             try:
+                # With another model to fall back on, a failing one gets a single attempt:
+                # each 502 from Nightshift takes up to a minute to come back.
                 return self._generate(prompt, system, schema=schema, route=role, purpose=purpose,
-                                      max_tokens=max_tokens, images=images)
+                                      max_tokens=max_tokens, images=images,
+                                      attempts=1 if i + 1 < len(chain) else 2)
             except (ReplayMiss, BudgetExceeded):
                 raise
             except GatewayError as e:
@@ -230,7 +233,7 @@ class Gateway:
     def _generate(self, prompt: str, system: str | None = None, *,
                   schema: type[BaseModel] | None = None, route: str = "meterless/auto",
                   purpose: str = "", max_tokens: int | None = None,
-                  images: list[bytes] | None = None) -> GenResult:
+                  images: list[bytes] | None = None, attempts: int = 2) -> GenResult:
         # Reasoning models spend the token budget thinking before they answer,
         # so a role carries its own budget and an optional system prefix.
         if max_tokens is None:
@@ -247,7 +250,8 @@ class Gateway:
         key = cache_key(route, system, prompt, schema, images, model)
         result = self._lookup(key)
         if result is None:
-            result = self._call(prompt, system, schema, route, max_tokens, key, images, model)
+            result = self._call(prompt, system, schema, route, max_tokens, key, images, model,
+                                attempts)
         elif self.record_replay and result.cached:
             self._store(key, result)        # a recording must include replies served from cache
         if schema is not None and result.parsed is None:
@@ -283,7 +287,7 @@ class Gateway:
         return None
 
     def _call(self, prompt, system, schema, route, max_tokens, key, images=None,
-              model=None) -> GenResult:
+              model=None, attempts: int = 2) -> GenResult:
         if not self.providers:
             raise GatewayError("no model provider configured (METERLESS_BASE_URL)")
         sys_text = system or ""
@@ -298,7 +302,7 @@ class Gateway:
                 for img in images]
         messages = ([{"role": "system", "content": sys_text.strip()}] if sys_text.strip()
                     else []) + [{"role": "user", "content": user}]
-        result = self._first_answer(messages, route, max_tokens, key, model)
+        result = self._first_answer(messages, route, max_tokens, key, model, attempts)
         if schema is not None:
             try:
                 result.parsed = parse_structured(result.text, schema)
@@ -307,15 +311,16 @@ class Gateway:
                                      {"role": "user", "content":
                                       f"That reply did not match the schema ({e}). "
                                       "Reply again with only the corrected JSON."}]
-                result = self._first_answer(repair, route, max_tokens, key, model)
+                result = self._first_answer(repair, route, max_tokens, key, model, attempts)
                 result.parsed = parse_structured(result.text, schema)   # raises if still bad
         self._store(key, result)
         return result
 
-    def _first_answer(self, messages, route, max_tokens, key, model=None) -> GenResult:
+    def _first_answer(self, messages, route, max_tokens, key, model=None,
+                      attempts: int = 2) -> GenResult:
         errors = []
         for provider in self.providers:
-            for attempt in (1, 2):
+            for attempt in range(1, attempts + 1):
                 self.budget.check()
                 t0 = time.perf_counter()
                 left = None if self.deadline is None else self.deadline - t0

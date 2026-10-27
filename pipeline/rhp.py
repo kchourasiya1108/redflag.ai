@@ -100,6 +100,22 @@ def page_texts(pdf_path: Path, cache: Path) -> list[str]:
     return texts
 
 
+def layout_texts(pdf_path: Path, wanted: list[int], cache: Path) -> dict[int, str]:
+    """Pages (1-based) re-read in layout order: some RHPs store a table's row labels apart
+    from its numbers, and only their positions put each label back on its row."""
+    from pypdf import PdfReader
+    done = {int(k): v for k, v in json.loads(cache.read_text()).items()} if cache.exists() else {}
+    todo = [p for p in wanted if p not in done]
+    if todo:
+        reader = PdfReader(pdf_path)
+        for p in todo:
+            if 1 <= p <= len(reader.pages):
+                done[p] = reader.pages[p - 1].extract_text(extraction_mode="layout")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({str(k): v for k, v in done.items()}))
+    return {p: done[p] for p in wanted if p in done}
+
+
 def gate(conn, settings) -> Gate:
     g = Gate("rhp")
     total, ok, scanned = conn.execute(

@@ -26,6 +26,19 @@ def rhp_pages(ctx: RunContext) -> tuple[list[str], dict | None]:
     return [], docs[0]
 
 
+def _layout(ctx: RunContext, doc: dict | None):
+    """Layout re-reads of the RHP PDF, when we hold it (an upload keeps its PDF)."""
+    from agent import uploads
+    if doc is None or not uploads.is_upload(ctx.ipo_id):
+        return None
+    pdf = uploads.folder(ctx.cfg) / ctx.ipo_id / "rhp.pdf"
+    if not pdf.exists():
+        return None
+    from pipeline.rhp import layout_texts
+    cache = ctx.cfg.cache / "pages_layout" / f"{doc['sha256']}.json"
+    return lambda wanted: layout_texts(pdf, wanted, cache)
+
+
 class Extractor(Agent):
     name = "Extractor"
     role = ("Reads the restated financials from the RHP: a deterministic table pass, then "
@@ -47,7 +60,7 @@ class Extractor(Agent):
         ctx.scratch["gaps"] = []        # this pass's gaps only
         result = extract_financials(pages, gateway=ctx.gateway,     # replays in sample mode
                                     label=ctx.ipo_id, on_attempt=attempt,
-                                    time_left=ctx.seconds_left)
+                                    time_left=ctx.seconds_left, layout=_layout(ctx, doc))
         not_found = 0
         for f in facts_from(result) + top_shares(pages):
             verified = f["verified"]

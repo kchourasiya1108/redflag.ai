@@ -82,14 +82,21 @@ SECTIONS = {
 
 
 def section_windows(pages: list[str], section: Section) -> list[tuple[int, str]]:
-    """(page, text) windows for a section: start at its table, else at its heading."""
+    """(page, text) windows for a section: start at its table, else at its heading.
+
+    The table is looked for inside the section first (within 40 pages after a page
+    titled with its heading): the same words also appear in the glossary and the risk
+    factors, which come earlier ("date of allotment" is defined on page 13).
+    """
     def is_toc(t: str) -> bool:
         return bool(re.search(r"(?i)table\s+of\s+contents|\.{6,}\s*\d+", t[:600]))
-    starts = [i for i, t in enumerate(pages, 1)
+    titled = re.compile(rf"(?im)^\W*(?:section\s+[ivx]+\W+[^\n]*\n\W*)?(?:summary\s+of\s+)?{section.heading}\W*$")
+    heads = [i for i, t in enumerate(pages, 1) if titled.search(t[:600]) and not is_toc(t)] or \
+            [i for i, t in enumerate(pages, 1) if re.search(section.heading, t[:400], re.I) and not is_toc(t)]
+    tables = [i for i, t in enumerate(pages, 1)
               if re.search(section.table, t) and len(_NUMBER.findall(t)) > 15 and not is_toc(t)]
-    if not starts:
-        starts = [i for i, t in enumerate(pages, 1)
-                  if re.search(section.heading, t[:400], re.I) and not is_toc(t)]
+    inside = [t for t in tables if any(h <= t <= h + 40 for h in heads)]
+    starts = inside or tables or heads
     if not starts:
         return []
     first = starts[0]

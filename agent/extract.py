@@ -120,13 +120,19 @@ def map_rows(gateway, text: str, kind: str, page: int, purpose: str) -> Statemen
 
 
 def extract_financials(pages: list[str], *, gateway=None, label: str = "rhp",
-                       on_attempt=None, time_left=lambda: float("inf")) -> dict[str, Extracted]:
-    """The three restated statements, each with its checks and the method that won."""
+                       on_attempt=None, time_left=lambda: float("inf"),
+                       layout=None) -> dict[str, Extracted]:
+    """The three restated statements, each with its checks and the method that won.
+
+    `layout(page_numbers) -> {page: text}` re-reads pages in layout order from the PDF;
+    when given, that no-model pass is tried before the model maps rows."""
     out: dict[str, Extracted] = {}
     for kind in KINDS:
         candidates = statement_pages(pages, kind)
         best = Extracted(kind, None)
         attempts = [("text_table", None)]
+        if layout is not None and candidates:
+            attempts.append(("layout_table", None))
         if gateway is not None and candidates:
             attempts += [("llm_row_map", 2), ("llm_row_map_wide", 3)]
         for method, span in attempts:
@@ -135,7 +141,7 @@ def extract_financials(pages: list[str], *, gateway=None, label: str = "rhp",
                 break
             best.attempts += 1
             try:
-                st = _attempt(pages, kind, candidates, method, span, gateway, label)
+                st = _attempt(pages, kind, candidates, method, span, gateway, label, layout)
             except Exception as e:          # a model outage falls through to "unverified"
                 best.detail = f"{method}: {type(e).__name__}: {str(e)[:120]}"
                 st = None
@@ -145,16 +151,24 @@ def extract_financials(pages: list[str], *, gateway=None, label: str = "rhp",
                     best.statement, best.checks, best.method = st, checks, method
             if on_attempt:
                 on_attempt(kind, method, best)
-            if best.checks and _latest_full_year_ok(best):
+            if best.checks and _latest_full_year_ok(best) and not (
+                    method == "text_table" and layout is not None):    # the no-model re-read is cheap
                 break
         out[kind] = best
     return out
 
 
-def _attempt(pages, kind, candidates, method, span, gateway, label) -> Statement | None:
+def _attempt(pages, kind, candidates, method, span, gateway, label, layout=None) -> Statement | None:
     if method == "text_table":
         from agent.rhp import parse_statements
         return parse_statements(pages).get(kind)
+    if method == "layout_table":
+        from agent.rhp import parse_statements
+        wanted = sorted({q for p in candidates for q in (p, p + 1) if q <= len(pages)})
+        relaid = list(pages)
+        for p, text in layout(wanted).items():
+            relaid[p - 1] = text
+        return parse_statements(relaid).get(kind)
     for page in candidates[:2]:
         text = "\n".join(pages[page - 1:page - 1 + span])
         st = map_rows(gateway, text, kind, page, purpose=f"extract:{label}:{kind}:{method}")

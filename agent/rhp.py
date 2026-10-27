@@ -124,7 +124,7 @@ def parse_number(token: str) -> float | None:
 
 # Field -> label patterns, per statement. First match wins within a statement.
 ROWS = {
-    "pl": [("revenue", r"revenue\s+from\s+operations"),
+    "pl": [("revenue", r"revenue\s+from\s+operations?"),
            ("other_income", r"^\W*(?:\(?[a-z0-9]\)?\W*)?other\s+income"),
            ("total_income", r"total\s+(?:income|revenue)"),
            ("employee", r"employee\s+benefit"),
@@ -133,8 +133,8 @@ ROWS = {
            ("total_expenses", r"total\s+expen"),
            ("pbt", r"profit\s*/?\s*(?:\(loss\)\s*)?before\s+tax|profit\s+before\s+tax"),
            ("tax", r"(?:total\s+tax|net\s+(?:current\s+)?tax|tax\s+expense)"),
-           ("pat", r"profit\s*/?\s*(?:\(loss\)\s*)?(?:for\s+the\s+(?:year|period)|after\s+tax)|"
-                   r"net\s+profit")],
+           ("pat", r"^(?!.*discontinu)(?:.*?)(?:profit\s*/?\s*(?:\(\s*loss\s*\)\s*)?(?:for\s+the\s+(?:year|period)|"
+                   r"after\s+tax)|net\s+profit)")],
     "bs": [("share_capital", r"share\s+capital"),
            ("reserves", r"reserves?\s+(?:and|&)\s+surplus|other\s+equity"),
            ("total_eq_liab", r"total\s+(?:equity\s+(?:and|&)\s+liabilit(?:y|ies)|liabilit(?:y|ies)\s+"
@@ -198,6 +198,11 @@ def parse_statement(text: str, kind: str, page: int) -> Statement | None:
         if len(nums) < k:
             continue
         label = line[:line.find(nums[-k])] if nums[-k] in line else line
+        if not _has_words(label):
+            # Layout text can print the label after the numbers: "II 27 12.26 45.02 Other Income".
+            tail = line[line.rfind(nums[-1]) + len(nums[-1]):].strip()
+            if tail[:1].isalpha() and _has_words(tail):
+                label = tail
         values = [parse_number(n) for n in nums[-k:]]
         if any(v is None for v in values):
             continue
@@ -211,6 +216,11 @@ def parse_statement(text: str, kind: str, page: int) -> Statement | None:
                     st.rows[fld] = re.sub(r"\s+", " ", label).strip()[:80]
                 break
     return st if st.values or st.totals else None
+
+
+def _has_words(text: str) -> bool:
+    """A real label, not only a row numeral ("III", "(a)") or an annexure number."""
+    return any(len(w) >= 3 and not re.fullmatch(r"(?i)[ivxlc]+", w) for w in re.findall(r"[A-Za-z]+", text))
 
 
 def _numbers_only(line: str) -> bool:

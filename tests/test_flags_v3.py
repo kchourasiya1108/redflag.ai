@@ -220,3 +220,22 @@ def test_out_of_order_concentration_shares_are_not_trusted():
     from agent.extract import top_shares
     pages = ["Top 5 suppliers accounted for 26.64% of purchases. Top 10 suppliers accounted for 5.96% of purchases."] * 2
     assert not any(r["verified"] for r in top_shares(pages))
+
+
+def test_layout_rows_with_labels_after_the_numbers_are_read():
+    from agent.rhp import parse_statement
+    text = """CONSOLIDATED STATEMENT OF PROFIT & LOSS AS RESTATED
+(₹ in Lakhs)
+Particulars June 30, 2026 March 31, 2026
+I 26 4,565.18 9,133.83 Revenue From Operation
+II 27 12.26 45.02 Other Income
+III 4,577.44 9,178.85 Total Income (I + II)
+Total Expenses (IV) 3,747.72 7,524.67
+IX 829.73 1,654.18 Profit before tax (VII-VIII)
+Total Tax Expenses 213.05 417.58
+XI Profit ( Loss) for the period from continuing operations (IX-X) 616.67 1,236.61
+XII Profit (Loss) for the period from discontinuing operations - -
+"""
+    st = parse_statement(text, "pl", 308)
+    assert st.values["revenue"] == [45.6518, 91.3383] and st.values["total_income"][0] == 45.7744
+    assert st.values["pat"] == [6.1667, 12.3661]
