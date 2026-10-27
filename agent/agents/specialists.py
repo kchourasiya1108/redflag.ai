@@ -84,8 +84,10 @@ class Specialists(Agent):
             return None
         name, rate, n = rows[0]["canonical_name"], feats["f_mm_crash"], int(feats["f_mm_n"])
         if n < LOW_HISTORY_N:
-            ctx.case.add_not_checked("F13 market maker", f"the market maker has only {n} earlier "
-                                     "SME IPOs with known results, too few to judge", agent=self.name)
+            history = ("no earlier SME IPOs" if n == 0 else "only 1 earlier SME IPO" if n == 1
+                       else f"only {n} earlier SME IPOs")
+            ctx.case.add_not_checked("F13 market maker", f"the market maker has {history} with known "
+                                     "results, too few to judge", agent=self.name)
             return None
         sev = "HIGH" if rate >= 0.5 else "ELEVATED" if rate >= 0.3 else "LOW"
         ctx.case.add_flag("F13", sev, value={"market_maker": name, "crash_rate": round(rate, 4), "n": n},
@@ -127,8 +129,9 @@ class Specialists(Agent):
         rate, n = feats["f_anchor_bad_rate"], int(feats["f_anchor_n"] or 0)
         top = ", ".join(a["name"] for a in anchors[:3])
         if rate is None or n < LOW_HISTORY_N:
-            ctx.case.add_not_checked("F13 anchor investors", f"the anchors ({top}) backed only {n} "
-                                     "earlier SME IPOs with known results, too few to judge",
+            ctx.case.add_not_checked("F13 anchor investors", f"the anchors ({top}) backed "
+                                     + ("no" if n == 0 else f"only {n}") + " earlier SME IPOs with "
+                                     "known results, too few to judge",
                                      agent=self.name)
             return None
         sev = "HIGH" if rate >= 0.5 else "ELEVATED" if rate >= 0.3 else "LOW"

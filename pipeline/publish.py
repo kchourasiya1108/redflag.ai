@@ -126,11 +126,16 @@ def build_sample(ctx: StageContext) -> int:
     _migrate(sample)          # the same added columns as archive.db
     sample.execute("ATTACH DATABASE ? AS src", (str(ctx.settings.archive_db),))
     marks = ",".join("?" * len(demo))
+    # The demo IPOs, their bankers' other issues (banker record, hop 2) and their people's
+    # other issues (person hop 2), so a sample run sees what a live run sees.
     sample.execute(f"""CREATE TEMP TABLE keep AS
         SELECT DISTINCT ib2.ipo_id FROM src.ipo_banker ib
         JOIN src.ipo_banker ib2 ON ib2.banker_id = ib.banker_id
         WHERE ib.ipo_id IN ({marks})
-        UNION SELECT ipo_id FROM src.ipos WHERE ipo_id IN ({marks})""", demo + demo)
+        UNION SELECT DISTINCT p2.ipo_id FROM src.ipo_people p
+        JOIN src.ipo_people p2 ON p2.person_key = p.person_key
+        WHERE p.ipo_id IN ({marks})
+        UNION SELECT ipo_id FROM src.ipos WHERE ipo_id IN ({marks})""", demo + demo + demo)
     copies = {
         "ipos": "SELECT * FROM src.ipos WHERE ipo_id IN (SELECT ipo_id FROM keep)",
         "ipo_banker": "SELECT * FROM src.ipo_banker WHERE ipo_id IN (SELECT ipo_id FROM keep)",
@@ -162,8 +167,8 @@ def build_sample(ctx: StageContext) -> int:
         "market_closes": "SELECT * FROM src.market_closes WHERE date IN (SELECT DISTINCT date "
                          "FROM src.market_closes WHERE date <= (SELECT max(open_date) FROM src.ipos "
                          "WHERE ipo_id IN (SELECT ipo_id FROM keep)) ORDER BY date DESC LIMIT 10)",
-        "ipo_market_maker": "SELECT * FROM src.ipo_market_maker WHERE ipo_id IN "
-                            "(SELECT ipo_id FROM keep)",
+        # Every market maker link: a market maker's record (F13) must match a live run.
+        "ipo_market_maker": "SELECT * FROM src.ipo_market_maker",
         "facts": "SELECT * FROM src.facts WHERE ipo_id IN (SELECT ipo_id FROM keep)",
         "entity_edge": "SELECT * FROM src.entity_edge",
         "docs": "SELECT * FROM src.docs WHERE ipo_id IN (SELECT ipo_id FROM keep)",
