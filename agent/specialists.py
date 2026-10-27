@@ -353,6 +353,10 @@ def f12_drift(rhp: FactSource, drhp_rows: list[dict]) -> Finding | None:
         if now is None or not r["value"]:
             continue
         rel = abs(now - r["value"]) / abs(r["value"])
+        if rel >= DRIFT_AT[1] and any(
+                (other := rhp.get(fld, y)) and abs(other - r["value"]) <= 0.005 * abs(r["value"])
+                for y in rhp.years() if y != fy):
+            continue                # the draft's figure is another year's: a column misread
         changes.append((rel, fld, fy, r["value"], now, rhp.page(fld, fy), r["page"]))
     if not changes:
         return None

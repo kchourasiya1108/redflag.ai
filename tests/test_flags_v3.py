@@ -310,3 +310,14 @@ def test_issue_pe_comes_from_the_price_when_the_rhp_prints_a_placeholder():
                                          {"name": "Shiv Aum Steels Limited", "pe": 98.54}]}
     v = peer_valuation(data, "Bombay Coated and Special Steels Limited", issue_price=72.0)
     assert v["issue_pe"] == 9.42 and abs(v["peer_median_pe"] - 56.76) < 1e-9
+
+
+def test_years_under_one_march_heading_and_shifted_draft_columns():
+    from agent.rhp import find_periods
+    from agent.specialists import _Facts, f12_drift
+    got = [p.end.isoformat() for p in find_periods("September 30, 2025 As at 31st March 2025 2024 2023")]
+    assert got == ["2025-09-30", "2025-03-31", "2024-03-31", "2023-03-31"]
+    rhp = _Facts([{"field": "pl.pbt", "fiscal_year": "FY25", "value": 5.36, "verified": 1},
+                  {"field": "pl.pbt", "fiscal_year": "FY24", "value": 4.08, "verified": 1}])
+    shifted = [{"field": "pl.pbt", "fiscal_year": "FY25", "value": 4.08, "page": 1, "verified": 1}]
+    assert f12_drift(rhp, shifted) is None

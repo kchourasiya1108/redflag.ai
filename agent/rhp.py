@@ -83,6 +83,11 @@ def find_periods(text: str) -> list[Period]:
             # Period ends are month-ends; "from 1st April" is a period start.
             if d and 2015 <= d.year <= 2030 and (d + timedelta(days=1)).day == 1:
                 found.append((m.start(), d))
+    # "As at 31st March 2025 2024 2023": one heading over several year columns.
+    for m in re.finditer(r"(?i)\b(?:31(?:st)?\s+march|march\s+31(?:st)?),?\s+((?:20\d{2}\s+){1,4}20\d{2})(?!\s*[-–]\s*\d)\b", flat):
+        for k, y in enumerate(re.findall(r"20\d{2}", m.group(1))):
+            if 2015 <= int(y) <= 2030:
+                found.append((m.start(1) + k, date(int(y), 3, 31)))
     out: list[Period] = []
     for _, d in sorted(found):
         if all(p.end != d for p in out):
