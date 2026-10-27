@@ -99,8 +99,8 @@ class NarrativeReader(Agent):
             code = peer_table(pages, basis.pages, ctx.meta.get("company", ""))
             if code.get("peers"):
                 basis.data = {**basis.data, "peers": code["peers"],
-                              "issue_eps": basis.data.get("issue_eps") or code.get("issue_eps"),
-                              "issue_pe": basis.data.get("issue_pe") or code.get("issue_pe")}
+                              "issue_eps": code.get("issue_eps") or basis.data.get("issue_eps"),
+                              "issue_pe": code.get("issue_pe") or basis.data.get("issue_pe")}
         if basis and basis.data.get("peers"):
             valuation = peer_valuation(basis.data, ctx.meta.get("company", ""), ctx.meta.get("issue_price"))
             if valuation.get("peers") and not valuation.get("issue_pe") and not ctx.meta.get("issue_price"):
