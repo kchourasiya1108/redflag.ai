@@ -91,7 +91,7 @@ def test_a_failing_extract_model_falls_back_to_the_reasoning_role(tmp_path):
         return SimpleNamespace(text="ok", served_model="deep")
     gw._generate = fake
     assert gw.generate("hi", route="extract", purpose="t").served_model == "deep"
-    assert calls == ["extract", "reason"] and "retrying on reason" in events[0]["error"]
+    assert calls == ["extract", "reason"] and "trying reason" in events[0]["error"]
     gw.sample_mode = True                      # replays never fall back
     with pytest.raises(GatewayError):
         gw.generate("hi", route="extract", purpose="t")
@@ -108,7 +108,7 @@ def test_a_cached_fallback_answer_is_reused_without_retrying_the_failing_model(t
     assert calls == ["reason"]                  # the failing model is not tried again
 
 
-def test_a_role_that_keeps_failing_goes_straight_to_its_fallback(tmp_path):
+def test_a_model_that_failed_is_tried_last_from_then_on(tmp_path):
     from agent.llm import Gateway, GatewayError
     gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
                  routes={"extract": "fast", "reason": "deep"})
@@ -123,7 +123,7 @@ def test_a_role_that_keeps_failing_goes_straight_to_its_fallback(tmp_path):
     gw._generate = fake
     for _ in range(3):
         gw.generate("hi", route="extract", purpose="t")
-    assert calls == ["extract", "reason", "extract", "reason", "reason"]   # third call skips the fast model
+    assert calls == ["extract", "reason", "reason", "reason"]   # later calls start on the model that answered
 
 
 def test_f1_cannot_be_dismissed_on_its_own_signal():
@@ -239,3 +239,37 @@ XII Profit (Loss) for the period from discontinuing operations - -
     st = parse_statement(text, "pl", 308)
     assert st.values["revenue"] == [45.6518, 91.3383] and st.values["total_income"][0] == 45.7744
     assert st.values["pat"] == [6.1667, 12.3661]
+
+
+def test_no_model_is_retried_and_a_plain_route_falls_back_to_every_role(tmp_path):
+    from agent.llm import Gateway, GatewayError
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "fast", "reason": "deep", "backup": "bolt"})
+    gw._is_cached = lambda *a, **k: False
+    calls = []
+
+    def fake(prompt, system=None, *, route="", attempts=2, **k):
+        calls.append((route, attempts))
+        if route != "backup":
+            raise GatewayError("502")
+        return SimpleNamespace(served_model="bolt")
+    gw._generate = fake
+    assert gw.generate("hi", route="meterless/auto", purpose="t").served_model == "bolt"
+    assert calls == [("meterless/auto", 1), ("extract", 1), ("reason", 1), ("backup", 1)]
+
+
+def test_roles_pinned_to_one_model_are_tried_once(tmp_path):
+    from agent.llm import Gateway, GatewayError
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "same", "reason": "same", "backup": "bolt"})
+    gw._is_cached = lambda *a, **k: False
+    calls = []
+
+    def fake(prompt, system=None, *, route="", **k):
+        calls.append(route)
+        if route != "backup":
+            raise GatewayError("502")
+        return SimpleNamespace(served_model="bolt")
+    gw._generate = fake
+    gw.generate("hi", route="extract", purpose="t")
+    assert calls == ["extract", "backup"]

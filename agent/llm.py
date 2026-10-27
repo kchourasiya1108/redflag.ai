@@ -43,12 +43,14 @@ class GatewayError(RuntimeError):
     pass
 
 
-# A role that fails falls back along this chain (live runs only): the other Nemotron
-# model first, then the small Bolt model, so a check completes instead of skipping
-# sections when one NVIDIA lane returns 502s (27 Oct 2026). After BREAK_AFTER failures
-# in one gateway (one run), a role is skipped straight to the next in its chain.
-FALLBACK_ROLES = {"extract": ("reason", "backup"), "reason": ("extract", "backup")}
-BREAK_AFTER = 2
+# A call that fails moves on to the next model in this chain (live runs only), never
+# retrying the one that failed: the other Nemotron model first, then the small Bolt
+# model, so a check completes instead of skipping sections when one NVIDIA lane returns
+# 502s (27 Oct 2026). Within one gateway (one run), a model that has failed goes to the
+# back of every later chain; it is still tried last, so a call is never given up on
+# while any model might answer. A route that is not a role falls back to every role.
+FALLBACK_ROLES = {"extract": ("reason", "backup"), "reason": ("extract", "backup"),
+                  "backup": ("extract", "reason")}
 
 
 class ReplayMiss(GatewayError):
@@ -192,26 +194,31 @@ class Gateway:
                  schema: type[BaseModel] | None = None, route: str = "meterless/auto",
                  purpose: str = "", max_tokens: int | None = None,
                  images: list[bytes] | None = None) -> GenResult:
-        chain = [route] + [r for r in FALLBACK_ROLES.get(route, ()) if r in self.routes]
-        if self.sample_mode or len(chain) == 1:
+        chain = [route] + [r for r in FALLBACK_ROLES.get(route, tuple(self.routes)) if r in self.routes]
+        seen, unique = set(), []
+        for r in chain:                     # two roles pinned to one model are one model
+            model = self.routes.get(r, r)
+            if model not in seen:
+                seen.add(model)
+                unique.append(r)
+        chain = unique
+        if self.sample_mode or images or len(chain) == 1:
             return self._generate(prompt, system, schema=schema, route=route, purpose=purpose,
                                   max_tokens=max_tokens, images=images)
-        # A reply already on disk for any role in the chain is reused, the role's own first:
+        # A reply already on disk for any model in the chain is reused, the role's own first:
         # an earlier run's fallback answer is not paid for again by waiting on a failing model.
         cached = next((r for r in chain if self._is_cached(prompt, system, schema, r, images)), None)
         if cached:
             chain = [cached]
         else:
-            live = [r for r in chain if self._role_failures.get(r, 0) < BREAK_AFTER]
-            chain = live or chain[-1:]
+            chain.sort(key=lambda r: self._role_failures.get(r, 0) > 0)    # failed ones last
         last: GatewayError | None = None
         for i, role in enumerate(chain):
             try:
-                # With another model to fall back on, a failing one gets a single attempt:
-                # each 502 from Nightshift takes up to a minute to come back.
+                # One attempt per model: each 502 from Nightshift takes up to a minute to
+                # come back, and the next model is more likely to answer than the same one.
                 return self._generate(prompt, system, schema=schema, route=role, purpose=purpose,
-                                      max_tokens=max_tokens, images=images,
-                                      attempts=1 if i + 1 < len(chain) else 2)
+                                      max_tokens=max_tokens, images=images, attempts=1)
             except (ReplayMiss, BudgetExceeded):
                 raise
             except GatewayError as e:
@@ -219,7 +226,7 @@ class Gateway:
                 self._role_failures[role] = self._role_failures.get(role, 0) + 1
                 if self.on_call and i + 1 < len(chain):
                     self.on_call({"action": "model.retry_or_fallback", "purpose": purpose,
-                                  "error": f"{role} failed, retrying on {chain[i + 1]}: {str(e)[:120]}"})
+                                  "error": f"{role} failed, trying {chain[i + 1]}: {str(e)[:120]}"})
         raise last
 
     def _is_cached(self, prompt: str, system: str | None, schema, role: str, images=None) -> bool:
