@@ -92,10 +92,9 @@ class Skeptic(Agent):
             verdict, reason = ruling.ruling, ruling.reason
             if verdict != "upheld" and not evidence:
                 verdict, reason = "upheld", reason + " (No page was cited, so the flag stands.)"
-            if verdict == "dismissed" and self.self_explained(flag["id"], reason):
-                verdict, reason = "downgraded", reason + (
-                    " (Working capital or receivables are what this check measures, so it is "
-                    "softened rather than dismissed.)")
+            why = self.self_explained(flag["id"], reason) if verdict == "dismissed" else None
+            if why:
+                verdict, reason = "downgraded", f"{reason} ({why})"
             new = {"upheld": None, "downgraded": {"HIGH": "ELEVATED", "ELEVATED": "LOW"},
                    "dismissed": {"HIGH": "LOW", "ELEVATED": "LOW"}}[verdict]
             ctx.case.rule_on_flag(flag["id"], verdict, reason, evidence, agent=self.name,
@@ -111,17 +110,32 @@ class Skeptic(Agent):
         "F1": ("Rising receivables, a working-capital build-up or slow customer payments are "
                "what this flag measures, not an ordinary explanation; count them only if the RHP "
                "shows the cash was collected afterwards."),
+        "F11": ("The report's own caveat that being named in an order is not a finding is not "
+                "an explanation; dismiss only if the RHP shows the named party is a different "
+                "entity or person, or that the link has ended."),
     }
 
     @staticmethod
-    def self_explained(flag_id: str, reason: str) -> bool:
-        """F1 dismissed on its own signal: working capital or receivables, with no sign the
-        cash was collected later."""
-        if flag_id != "F1":
-            return False
-        own = re.search(r"(?i)working[\s-]*capital|receivable|debtor", reason)
-        collected = re.search(r"(?i)\b(?:collected|realis|realiz|received\s+(?:subsequently|later|after))", reason)
-        return bool(own) and not collected
+    def self_explained(flag_id: str, reason: str) -> str | None:
+        """A dismissal resting on the flag's own signal, which softens it instead: F1 on
+        working capital or receivables with no sign the cash was collected later; F11 on
+        the caveat that being named is not a finding, with no sign the party is another
+        entity or the link has ended. Returns the note added to the ruling, or None."""
+        if flag_id == "F1":
+            own = re.search(r"(?i)working[\s-]*capital|receivable|debtor", reason)
+            collected = re.search(r"(?i)\b(?:collected|realis|realiz|received\s+(?:subsequently|later|after))", reason)
+            if own and not collected:
+                return ("Working capital or receivables are what this check measures, so it is "
+                        "softened rather than dismissed.")
+        if flag_id == "F11":
+            caveat = re.search(r"(?i)not\s+(?:a\s+)?(?:finding|proof)|does\s+not\s+(?:imply|mean|indicate)|"
+                               r"no\s+(?:finding|wrongdoing)|merely\s+named", reason)
+            other = re.search(r"(?i)different\s+(?:entity|person|compan)|not\s+the\s+same|unrelated|"
+                              r"no\s+longer|ceased|resigned|exited|severed", reason)
+            if caveat and not other:
+                return ("Being named in an order is not a finding, but that caveat does not explain "
+                        "the link away, so it is softened rather than dismissed.")
+        return None
 
     def ask(self, ctx: RunContext, flag: dict, pages: list[str], depth: str):
         """One cited ruling from Nemotron, (None, pages) when there is no time, or the

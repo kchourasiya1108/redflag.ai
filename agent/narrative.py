@@ -103,6 +103,82 @@ def section_windows(pages: list[str], section: Section) -> list[tuple[int, str]]
     return [(p, pages[p - 1]) for p in range(first, min(first + section.max_pages, len(pages) + 1))]
 
 
+_ROW_KEYS = {"date", "object", "party", "name", "nature", "allottee"}
+_ALIASES = {"shares": ("shares_allotted", "no_of_shares", "number_of_shares", "num_shares",
+                       "equity_shares", "shares_issued"),
+            "issue_price": ("price", "issue_price_per_share", "price_per_share"),
+            "amount": ("amount_cr", "amount_lakh", "value", "estimated_amount", "total")}
+
+
+def _objects_in(text: str) -> list:
+    """Every top-level JSON value in a reply, in order (a model may print one row per line)."""
+    out, depth, start, in_str = [], 0, None, False
+    for i, ch in enumerate(text):
+        if ch == '"' and (i == 0 or text[i - 1] != "\\"):
+            in_str = not in_str
+        elif not in_str and ch in "{[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif not in_str and ch in "}]" and depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    out.append(json.loads(text[start:i + 1]))
+                except ValueError:
+                    pass
+                start = None
+    if depth and start is not None:
+        # A reply cut off by its token budget: keep the complete rows inside it.
+        dec, tail, j = json.JSONDecoder(), text[start + 1:], 0
+        unit = re.match(r'\s*"unit"\s*:\s*"([^"]+)"', tail)
+        if unit:                        # the table's unit, printed before its rows
+            out.append({"unit": unit.group(1)})
+        while (j := tail.find("{", j)) >= 0:
+            try:
+                value, end = dec.raw_decode(tail, j)
+            except ValueError:
+                j += 1
+                continue
+            if isinstance(value, dict):
+                out.append(value)
+            j = end
+    return out
+
+
+def _normalise_row(r: dict) -> dict:
+    r = dict(r)
+    for key, names in _ALIASES.items():
+        if r.get(key) in (None, ""):
+            hit = next((r[n] for n in names if r.get(n) not in (None, "")), None)
+            if hit is not None:
+                r[key] = hit
+    return r
+
+
+def _chunk_data(content: str) -> dict:
+    """The chunk's object and rows: a {"rows": [...]} reply, a bare list of rows, or rows
+    printed one object per line, with common column-name variants normalised."""
+    values = _objects_in(content)
+    merged: dict = {"rows": []}
+    for v in values:
+        rows = v if isinstance(v, list) else v.get("rows") if isinstance(v, dict) else None
+        if isinstance(rows, list):
+            merged["rows"] += [_normalise_row(r) for r in rows if isinstance(r, dict)]
+        if isinstance(v, dict):
+            if "rows" not in v and _ROW_KEYS & set(v) and not ({"peers", "issue_pe"} & set(v)):
+                merged["rows"].append(_normalise_row(v))
+                if v.get("unit") and "unit" not in merged:
+                    merged["unit"] = v["unit"]
+                continue
+            for k, x in v.items():
+                if k != "rows" and x not in (None, "", []) and k not in merged:
+                    merged[k] = x
+    if not values:
+        merged.update(_rows_from(content))
+    return merged
+
+
 def _rows_from(content: str) -> dict:
     """The chunk's JSON object, even after reasoning text that contains braces."""
     from agent.llm import _last_json
@@ -144,7 +220,7 @@ def read_section(gateway, pages: list[str], name: str, *, history: Path | None =
     merged: dict = {"rows": []}
 
     def collect(chunk):
-        part = _rows_from(chunk.content)
+        part = _chunk_data(chunk.content)
         merged["rows"] += [r for r in part.get("rows", []) if isinstance(r, dict)]
         for k, v in part.items():
             if k != "rows" and v not in (None, "") and k not in merged:
@@ -228,8 +304,11 @@ def _is_issuer(own: list[str], name: str) -> bool:
     return bool(own) and own[0] in words and set(own) <= words | {own[0]}
 
 
-def peer_valuation(data: dict, company: str = "") -> dict:
-    """Issue P/E over the median P/E of the listed peers the RHP itself chose (F8)."""
+def peer_valuation(data: dict, company: str = "", issue_price: float | None = None) -> dict:
+    """Issue P/E over the median P/E of the listed peers the RHP itself chose (F8).
+
+    An RHP printed before the price band shows its own P/E as [●]; it is then the
+    announced issue price over the EPS the RHP prints."""
     own = _distinctive(company)
     peers = []
     for p in data.get("peers", []):
@@ -242,6 +321,10 @@ def peer_valuation(data: dict, company: str = "") -> dict:
     own_pe = [_num(p.get("pe")) for p in data.get("peers", [])
               if _is_issuer(own, str(p.get("name", "")))]
     issue_pe = _num(data.get("issue_pe")) or next((x for x in own_pe if x), None)
+    eps = _num(data.get("issue_eps")) or next((_num(p.get("eps")) for p in data.get("peers", [])
+                                               if _is_issuer(own, str(p.get("name", ""))) and _num(p.get("eps"))), None)
+    if not issue_pe and issue_price and eps and eps > 0:
+        issue_pe = round(issue_price / eps, 2)
     med = _median([p["pe"] for p in peers])
     return {"issue_pe": issue_pe, "peer_median_pe": med, "peers": peers,
             "premium": issue_pe / med if issue_pe and med else None,
@@ -287,6 +370,18 @@ def reprice_peers(valuation: dict, port, as_of: date) -> dict:
     return out
 
 
+def _nature(value) -> str:
+    """The model's own wording mapped to the categories F6 counts ("Sale of goods" -> sale)."""
+    v = str(value or "").lower()
+    if v in ("sale", "purchase"):
+        return v
+    if re.search(r"sale|revenue|income\s+from|service[s]?\s+rendered", v) and "purchase" not in v:
+        return "sale"
+    if re.search(r"purchase|procure|material|job\s*work", v):
+        return "purchase"
+    return v
+
+
 def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:
     """Related-party sales and purchases as a share of revenue, latest year (F6)."""
     factor = UNIT_TO_CRORE.get(str(data.get("unit", "")).lower().rstrip("s").replace("lac", "lakh"))
@@ -295,6 +390,7 @@ def rpt_share(data: dict, revenue_by_fy: dict[str, float]) -> dict:
     by_fy: dict[str, float] = {}
     pages, seen = set(), set()
     for r in data.get("rows", []):
+        r = {**r, "nature": _nature(r.get("nature"))}
         if r.get("nature") not in ("sale", "purchase"):
             continue
         if re.search(r"(?i)\btotal\b", f"{r.get('party', '')} {r.get('relationship', '')}"):
@@ -339,6 +435,25 @@ def printed_gross(pages: list[str], window: list[int]) -> float | None:
     return None
 
 
+_KINDS = ("gcp", "working_capital", "loan_repayment", "capex", "issue_expenses", "acquisition", "other")
+
+
+def _kind(row: dict) -> str:
+    """A use of the money in F9's categories, from the model's kind or the line itself."""
+    kind = str(row.get("kind") or "").lower().strip()
+    if kind in _KINDS:
+        return kind
+    text = f"{kind} {row.get('object', '')}".lower()
+    for k, pattern in (("gcp", r"general\s+corporate"), ("working_capital", r"working\s+capital"),
+                       ("issue_expenses", r"issue\s+(?:related\s+)?expense|offer\s+expense"),
+                       ("loan_repayment", r"repay|pre-?pay|borrowing|loan"),
+                       ("acquisition", r"acqui(?:re|sition)\s+(?:of\s+)?(?:a\s+)?(?:compan|business|stake)|investment\s+in"),
+                       ("capex", r"capital\s+(?:expenditure|equipment)|plant|machinery|capex|construct|facility|asset")):
+        if re.search(pattern, text):
+            return k
+    return "other"
+
+
 def objects_summary(data: dict, as_of: date | None = None, gross_cr: float | None = None) -> dict:
     """GCP and working capital as shares of the gross proceeds, in crore."""
     factor = UNIT_TO_CRORE.get(str(data.get("unit", "")).lower().rstrip("s").replace("lac", "lakh"))
@@ -352,7 +467,8 @@ def objects_summary(data: dict, as_of: date | None = None, gross_cr: float | Non
             continue                    # a total row would double the base
         amount = _num(r.get("amount"))
         if amount is not None:
-            by_kind[r.get("kind", "other")] = by_kind.get(r.get("kind", "other"), 0.0) + amount * factor
+            kind = _kind(r)
+            by_kind[kind] = by_kind.get(kind, 0.0) + amount * factor
     stated = _num(data.get("gross_proceeds"))
     uses = sum(by_kind.values()) or None
     # The RHP's own "Gross Proceeds" line (read in code) wins; a total smaller

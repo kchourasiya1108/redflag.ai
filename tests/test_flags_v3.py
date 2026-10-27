@@ -273,3 +273,40 @@ def test_roles_pinned_to_one_model_are_tried_once(tmp_path):
     gw._generate = fake
     gw.generate("hi", route="extract", purpose="t")
     assert calls == ["extract", "backup"]
+
+
+def test_f11_cannot_be_dismissed_on_the_reports_own_caveat():
+    from agent.agents.skeptic import Skeptic
+    assert Skeptic.self_explained("F11", "The flag states that being named in a SEBI order is not a finding against the company.")
+    assert not Skeptic.self_explained("F11", "The RHP shows the named Rikhav Securities is a different entity (page 210).")
+
+
+def test_a_cached_backup_answer_does_not_stop_nemotron_being_asked(tmp_path):
+    from agent.llm import Gateway
+    gw = Gateway(providers=[], cache_dir=tmp_path / "c", replay_dir=tmp_path / "r",
+                 routes={"extract": "fast", "reason": "deep", "backup": "bolt"})
+    gw._is_cached = lambda prompt, system, schema, role, images=None: role == "backup"
+    calls = []
+    gw._generate = lambda prompt, system=None, *, route="", **k: (calls.append(route), SimpleNamespace(served_model=route))[1]
+    assert gw.generate("hi", route="extract", purpose="t").served_model == "extract"
+    assert calls == ["extract"]
+
+
+def test_rows_printed_one_per_line_or_cut_off_are_still_read():
+    from agent.narrative import _chunk_data, objects_summary
+    lines = ('{"date": "2025-10-28", "nature": "Private Placement", "shares_allotted": 113637, "issue_price": 88.0}\n'
+             '{"date": "2025-10-28", "nature": "Private Placement", "no_of_shares": 113636, "issue_price": 88.0}')
+    assert [r["shares"] for r in _chunk_data(lines)["rows"]] == [113637, 113636]
+    cut = ('{"unit": "million", "rows": [{"object": "Repayment of certain borrowings", "kind": "Repayment", '
+           '"amount": 1250.00}, {"object": "General corporate purposes", "amount": 300.0}, {"object": "Capi')
+    data = _chunk_data(cut)
+    assert data["unit"] == "million" and len(data["rows"]) == 2
+    assert objects_summary(data)["by_kind_cr"] == {"loan_repayment": 125.0, "gcp": 30.0}
+
+
+def test_issue_pe_comes_from_the_price_when_the_rhp_prints_a_placeholder():
+    from agent.narrative import peer_valuation
+    data = {"issue_eps": 7.64, "peers": [{"name": "BMW Industries Limited", "pe": 14.98},
+                                         {"name": "Shiv Aum Steels Limited", "pe": 98.54}]}
+    v = peer_valuation(data, "Bombay Coated and Special Steels Limited", issue_price=72.0)
+    assert v["issue_pe"] == 9.42 and abs(v["peer_median_pe"] - 56.76) < 1e-9

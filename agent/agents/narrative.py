@@ -88,7 +88,8 @@ class NarrativeReader(Agent):
                                      agent=self.name)
         basis = results.get("basis")
         if basis and basis.data.get("peers"):
-            self._record(ctx, f8_overvalued(reprice_peers(peer_valuation(basis.data, ctx.meta.get("company", "")),
+            self._record(ctx, f8_overvalued(reprice_peers(peer_valuation(basis.data, ctx.meta.get("company", ""),
+                                                                         ctx.meta.get("issue_price")),
                                                           ctx.port, ctx.as_of)),
                          basis, "F8 valuation vs peers", done)
         elif basis:

@@ -207,11 +207,15 @@ class Gateway:
                                   max_tokens=max_tokens, images=images)
         # A reply already on disk for any model in the chain is reused, the role's own first:
         # an earlier run's fallback answer is not paid for again by waiting on a failing model.
-        cached = next((r for r in chain if self._is_cached(prompt, system, schema, r, images)), None)
+        # A cached answer from the small backup model is not locked in: the Nemotron models
+        # are asked again first, and the backup's answer is reused only if they fail.
+        cached = next((r for r in chain if r != "backup"
+                       and self._is_cached(prompt, system, schema, r, images)), None)
         if cached:
             chain = [cached]
         else:
-            chain.sort(key=lambda r: self._role_failures.get(r, 0) > 0)    # failed ones last
+            # Models that failed this run go last; among the rest, the backup after Nemotron.
+            chain.sort(key=lambda r: (self._role_failures.get(r, 0) > 0, r == "backup"))
         last: GatewayError | None = None
         for i, role in enumerate(chain):
             try:
