@@ -82,9 +82,13 @@ class NarrativeReader(Agent):
             pass
         elif obj.data.get("rows"):
             gross = printed_gross(pages, obj.pages)
-            self._record(ctx, f9_use_of_money(objects_summary(obj.data, ctx.as_of, gross),
-                                              obj.pages), obj,
-                         "F9 use of money", done)
+            finding = f9_use_of_money(objects_summary(obj.data, ctx.as_of, gross), obj.pages)
+            window = "\n".join(pages[p - 1] for p in obj.pages)
+            if finding is None and re.search(r"(?i)general\s+corporate\s+purposes?[^\n]{0,30}\[[●•]\]", window):
+                ctx.case.add_not_checked("F9 use of money", "the amount for general corporate purposes is "
+                                         "printed as [●] until the issue price is fixed", agent=self.name)
+            else:
+                self._record(ctx, finding, obj, "F9 use of money", done)
         else:
             ctx.case.add_not_checked("F9 use of money", obj.error or "the table of how the money will be used could not be read",
                                      agent=self.name)
